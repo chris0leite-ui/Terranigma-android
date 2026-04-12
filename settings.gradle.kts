@@ -14,4 +14,5 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Terranigma"
-include(":app")
+include(":core")
+if (System.getenv("BUILD_ANDROID") == "true") include(":app")
