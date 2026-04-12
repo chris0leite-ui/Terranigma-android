@@ -4,98 +4,17 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import kotlin.math.abs
+import kotlin.math.min
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-private const val TS = 64          // tile size in px
-private const val FRAME_MS = 33L   // ~30 fps
-
-// ── Data types ────────────────────────────────────────────────────────────────
-
-enum class T(val pass: Boolean, val col: Int) {
-    GRASS(true,  Color.rgb(56, 142,  60)),
-    WALL (false, Color.rgb(55,  71,  79)),
-    WATER(false, Color.rgb(30, 136, 229)),
-    DOOR (true,  Color.rgb(255, 143,  0)),
-}
-
-data class Enemy(var x: Int, var y: Int, var hp: Int = 3)
-
-class Room(val w: Int, val h: Int) {
-    val tiles   = Array(h) { Array(w) { T.GRASS } }
-    val enemies = mutableListOf<Enemy>()
-    var doorX = -1; var doorY = -1
-    var doorTarget = -1
-    var spawnX = 1;  var spawnY = 1
-
-    operator fun get(y: Int, x: Int) = tiles[y][x]
-    operator fun set(y: Int, x: Int, t: T) { tiles[y][x] = t }
-}
-
-// ── Game state ────────────────────────────────────────────────────────────────
-
-class Game {
-    var px = 5; var py = 5
-    var hp = 10; val maxHp = 10
-    var roomIdx = 0
-    val rooms = buildRooms()
-    val room get() = rooms[roomIdx]
-
-    fun move(dx: Int, dy: Int) {
-        val nx = px + dx; val ny = py + dy
-        val r = room
-        if (nx !in 0 until r.w || ny !in 0 until r.h) return
-        if (!r[ny, nx].pass) return
-
-        val hit = r.enemies.firstOrNull { it.x == nx && it.y == ny }
-        if (hit != null) {
-            hit.hp--
-            if (hit.hp <= 0) r.enemies.remove(hit)
-            return
-        }
-
-        px = nx; py = ny
-
-        if (r[ny, nx] == T.DOOR && r.doorTarget >= 0) {
-            val next = rooms[r.doorTarget]
-            roomIdx = r.doorTarget
-            px = next.spawnX; py = next.spawnY
-            return
-        }
-
-        // enemies step toward player
-        for (e in r.enemies.toList()) {
-            val ex = e.x + (px - e.x).coerceIn(-1, 1)
-            val ey = e.y + (py - e.y).coerceIn(-1, 1)
-            when {
-                ex == px && ey == py -> hp--
-                r[ey, ex].pass && r.enemies.none { it.x == ex && it.y == ey } -> { e.x = ex; e.y = ey }
-            }
-        }
-    }
-
-    private fun buildRooms(): List<Room> {
-        // Room 0 – starting area
-        val r0 = Room(12, 10).apply {
-            for (x in 0 until w) { this[0, x] = T.WALL; this[h-1, x] = T.WALL }
-            for (y in 0 until h) { this[y, 0] = T.WALL; this[y, w-1] = T.WALL }
-            for (x in 3..5) this[5, x] = T.WATER
-            this[h-1, 6] = T.DOOR; doorX = 6; doorY = h-1; doorTarget = 1; spawnX = 5; spawnY = 2
-        }
-        // Room 1 – enemy room
-        val r1 = Room(14, 12).apply {
-            for (x in 0 until w) { this[0, x] = T.WALL; this[h-1, x] = T.WALL }
-            for (y in 0 until h) { this[y, 0] = T.WALL; this[y, w-1] = T.WALL }
-            enemies += Enemy(7, 5); enemies += Enemy(10, 8)
-            this[0, 7] = T.DOOR; doorX = 7; doorY = 0; doorTarget = 0; spawnX = 6; spawnY = 8
-        }
-        return listOf(r0, r1)
-    }
-}
-
-// ── View ──────────────────────────────────────────────────────────────────────
+private const val FRAME_MS = 33L
+private const val HUD_H    = 56
 
 class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
@@ -104,17 +23,37 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
     private var running = false
     private var thread: Thread? = null
 
+    private var ts      = 64
+    private var btnSize = 80
+    private var dpadCx  = 0f
+    private var dpadCy  = 0f
+    private var playerFlash = 0
+
+    @Suppress("DEPRECATION")
+    private val vib = ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+
     init { holder.addCallback(this) }
 
-    override fun surfaceCreated(h: SurfaceHolder)                          { resume() }
-    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) = Unit
-    override fun surfaceDestroyed(h: SurfaceHolder)                        { pause() }
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    override fun surfaceCreated(h: SurfaceHolder) { resume() }
+
+    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) {
+        btnSize = min(w, ht) / 6
+        val availH = ht - HUD_H - btnSize * 3
+        ts     = min(w / g.room.w, availH / g.room.h).coerceAtLeast(8)
+        dpadCx = w / 2f
+        dpadCy = ht - btnSize * 1.5f
+    }
+
+    override fun surfaceDestroyed(h: SurfaceHolder) { pause() }
 
     fun resume() {
         running = true
         thread = Thread {
             while (running) {
                 val t = System.currentTimeMillis()
+                if (playerFlash > 0) playerFlash--
                 draw()
                 val s = FRAME_MS - (System.currentTimeMillis() - t)
                 if (s > 0) Thread.sleep(s)
@@ -122,10 +61,9 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
         }.also { it.start() }
     }
 
-    fun pause() {
-        running = false
-        thread?.join(); thread = null
-    }
+    fun pause() { running = false; thread?.join(); thread = null }
+
+    // ── Render ────────────────────────────────────────────────────────────────
 
     private fun draw() {
         val c = holder.lockCanvas() ?: return
@@ -134,28 +72,42 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
     private fun render(c: Canvas) {
         c.drawColor(Color.BLACK)
-        val r = g.room
-        val ox = (c.width  - r.w * TS) / 2
-        val oy = 56   // HUD height
+        val r  = g.room
+        val ox = (c.width - r.w * ts) / 2
+        val oy = HUD_H
 
         // tiles
         for (y in 0 until r.h) for (x in 0 until r.w) {
-            paint.color = r[y, x].col
-            c.drawRect((ox + x*TS).f, (oy + y*TS).f, (ox + (x+1)*TS).f, (oy + (y+1)*TS).f, paint)
+            val l = ox + x * ts; val t2 = oy + y * ts
+            paint.style = Paint.Style.FILL
+            paint.color = r[y, x].color()
+            c.drawRect(l.f, t2.f, (l + ts).f, (t2 + ts).f, paint)
+            paint.style = Paint.Style.STROKE; paint.strokeWidth = 1f
+            paint.color = Color.argb(50, 0, 0, 0)
+            c.drawRect(l.f, t2.f, (l + ts).f, (t2 + ts).f, paint)
+            paint.style = Paint.Style.FILL
         }
 
-        // enemies (magenta squares)
-        paint.color = Color.MAGENTA
+        // enemies
         for (e in r.enemies) {
-            val pad = 10f
-            c.drawRect(ox + e.x*TS + pad, oy + e.y*TS + pad,
-                       ox + (e.x+1)*TS - pad, oy + (e.y+1)*TS - pad, paint)
+            val pad = ts * 0.15f
+            paint.color = if (e.flash > 0) Color.WHITE else Color.rgb(200, 0, 180)
+            if (e.flash > 0) e.flash--
+            val el = ox + e.x * ts; val et = oy + e.y * ts
+            c.drawRect(el + pad, et + pad, el + ts - pad, et + ts - pad, paint)
+            // eyes
+            paint.color = Color.BLACK
+            val ecx = (el + ts / 2).f; val ecy = et + ts * 0.4f
+            c.drawCircle(ecx - ts * 0.15f, ecy, ts * 0.07f, paint)
+            c.drawCircle(ecx + ts * 0.15f, ecy, ts * 0.07f, paint)
         }
 
-        // player (white ring + red dot)
-        val px = (ox + g.px*TS + TS/2).f; val py = (oy + g.py*TS + TS/2).f
-        paint.color = Color.WHITE;  c.drawCircle(px, py, (TS/2 - 4).f, paint)
-        paint.color = Color.RED;    c.drawCircle(px, py, (TS/2 - 12).f, paint)
+        // player
+        val pcx = (ox + g.px * ts + ts / 2).f; val pcy = (oy + g.py * ts + ts / 2).f
+        paint.color = if (playerFlash > 0) Color.RED else Color.WHITE
+        c.drawCircle(pcx, pcy, (ts / 2 - 4).f, paint)
+        paint.color = if (playerFlash > 0) Color.YELLOW else Color.rgb(200, 50, 50)
+        c.drawCircle(pcx, pcy, (ts / 2 - ts / 5).f, paint)
 
         // HUD
         paint.color = Color.DKGRAY; c.drawRect(8f, 8f, 208f, 44f, paint)
@@ -163,21 +115,70 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
         c.drawRect(8f, 8f, 8f + 200f * g.hp / g.maxHp, 44f, paint)
         paint.color = Color.WHITE; paint.textSize = 22f
         c.drawText("HP ${g.hp}/${g.maxHp}", 216f, 36f, paint)
+
+        renderDpad(c)
     }
+
+    // D-pad: [ox, oy, label] triples
+    private val DPAD = arrayOf(
+        floatArrayOf(0f, -1f),   // ▲
+        floatArrayOf(-1f, 0f),   // ◄
+        floatArrayOf(1f,  0f),   // ►
+        floatArrayOf(0f,  1f),   // ▼
+    )
+    private val DPAD_LABELS = arrayOf("▲", "◄", "►", "▼")
+
+    private fun renderDpad(c: Canvas) {
+        paint.textSize  = btnSize * 0.5f
+        paint.textAlign = Paint.Align.CENTER
+        val half = btnSize * 0.45f
+        for (i in DPAD.indices) {
+            val bx = dpadCx + DPAD[i][0] * btnSize
+            val by = dpadCy + DPAD[i][1] * btnSize
+            paint.color = Color.argb(180, 50, 50, 60); paint.style = Paint.Style.FILL
+            c.drawRoundRect(bx - half, by - half, bx + half, by + half, 14f, 14f, paint)
+            paint.color = Color.argb(200, 180, 180, 200); paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 2f
+            c.drawRoundRect(bx - half, by - half, bx + half, by + half, 14f, 14f, paint)
+            paint.style = Paint.Style.FILL; paint.color = Color.WHITE
+            c.drawText(DPAD_LABELS[i], bx, by + btnSize * 0.18f, paint)
+        }
+        paint.textAlign = Paint.Align.LEFT
+    }
+
+    // ── Input ─────────────────────────────────────────────────────────────────
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.action != MotionEvent.ACTION_DOWN) return true
-        val r = g.room
-        val ox = (width  - r.w * TS) / 2
-        val oy = 56
-        val tx = (e.x.toInt() - ox) / TS
-        val ty = (e.y.toInt() - oy) / TS
-        val dx = (tx - g.px).coerceIn(-1, 1)
-        val dy = (ty - g.py).coerceIn(-1, 1)
-        if (dx != 0) g.move(dx, 0)
-        if (dy != 0) g.move(0, dy)
+        val dx = e.x - dpadCx; val dy = e.y - dpadCy
+        val half = btnSize * 0.5f
+        val (mdx, mdy) = when {
+            dy < -half && abs(dx) < half -> 0 to -1
+            dy >  half && abs(dx) < half -> 0 to  1
+            dx < -half && abs(dy) < half -> -1 to 0
+            dx >  half && abs(dy) < half ->  1 to 0
+            else -> return true
+        }
+        val before = g.hp
+        g.move(mdx, mdy)
+        if (g.hp < before) { playerFlash = 10; vibrate() }
         return true
+    }
+
+    private fun vibrate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vib?.vibrate(VibrationEffect.createOneShot(30L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION") vib?.vibrate(30L)
+        }
     }
 }
 
-private val Int.f get() = this.toFloat()
+private fun T.color() = when (this) {
+    T.GRASS -> Color.rgb(56,  142,  60)
+    T.WALL  -> Color.rgb(55,   71,  79)
+    T.WATER -> Color.rgb(30,  136, 229)
+    T.DOOR  -> Color.rgb(255, 143,   0)
+}
+
+private val Int.f get() = toFloat()
