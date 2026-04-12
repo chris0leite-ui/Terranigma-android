@@ -19,7 +19,7 @@ private const val HUD_H    = 56
 class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val g = Game()
+    private var g = Game()
     private var running = false
     private var thread: Thread? = null
 
@@ -100,6 +100,15 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
             val ecx = (el + ts / 2).f; val ecy = et + ts * 0.4f
             c.drawCircle(ecx - ts * 0.15f, ecy, ts * 0.07f, paint)
             c.drawCircle(ecx + ts * 0.15f, ecy, ts * 0.07f, paint)
+            // HP dots
+            val dotR = ts * 0.08f; val dotY = et + ts - pad - dotR
+            val totalW = e.hp * dotR * 2 + (e.hp - 1) * dotR
+            var dotX = el + ts / 2 - totalW / 2 + dotR
+            repeat(e.hp) {
+                paint.color = Color.GREEN
+                c.drawCircle(dotX, dotY, dotR, paint)
+                dotX += dotR * 3
+            }
         }
 
         // player
@@ -112,11 +121,23 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
         // HUD
         paint.color = Color.DKGRAY; c.drawRect(8f, 8f, 208f, 44f, paint)
         paint.color = if (g.hp > 3) Color.GREEN else Color.RED
-        c.drawRect(8f, 8f, 8f + 200f * g.hp / g.maxHp, 44f, paint)
+        val barW = (200f * g.hp / g.maxHp).coerceAtLeast(0f)
+        if (barW > 0) c.drawRect(8f, 8f, 8f + barW, 44f, paint)
         paint.color = Color.WHITE; paint.textSize = 22f
         c.drawText("HP ${g.hp}/${g.maxHp}", 216f, 36f, paint)
 
         renderDpad(c)
+
+        // game-over overlay
+        if (!g.alive) {
+            paint.color = Color.argb(180, 0, 0, 0)
+            c.drawRect(0f, 0f, c.width.f, c.height.f, paint)
+            paint.color = Color.RED; paint.textSize = 64f; paint.textAlign = Paint.Align.CENTER
+            c.drawText("GAME OVER", c.width / 2f, c.height / 2f - 40f, paint)
+            paint.color = Color.WHITE; paint.textSize = 30f
+            c.drawText("Tap to restart", c.width / 2f, c.height / 2f + 20f, paint)
+            paint.textAlign = Paint.Align.LEFT
+        }
     }
 
     // D-pad: [ox, oy, label] triples
@@ -150,6 +171,7 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.action != MotionEvent.ACTION_DOWN) return true
+        if (!g.alive) { g = Game(); playerFlash = 0; return true }
         val dx = e.x - dpadCx; val dy = e.y - dpadCy
         val half = btnSize * 0.5f
         val (mdx, mdy) = when {

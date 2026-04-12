@@ -18,11 +18,14 @@ class Room(val w: Int, val h: Int) {
 class Game {
     var px = 5; var py = 5
     var hp = 10; val maxHp = 10
+    var invincible = 0
     var roomIdx = 0
     val rooms = buildRooms()
     val room get() = rooms[roomIdx]
+    val alive get() = hp > 0
 
     fun move(dx: Int, dy: Int) {
+        if (!alive) return
         val nx = px + dx; val ny = py + dy
         val r = room
         if (nx !in 0 until r.w || ny !in 0 until r.h) return
@@ -42,11 +45,13 @@ class Game {
             roomIdx = r.doorTarget; px = next.spawnX; py = next.spawnY; return
         }
 
+        if (invincible > 0) { invincible--; return }
+
         for (e in r.enemies.toList()) {
             val ex = e.x + (px - e.x).coerceIn(-1, 1)
             val ey = e.y + (py - e.y).coerceIn(-1, 1)
             when {
-                ex == px && ey == py -> hp--
+                ex == px && ey == py -> { hp = (hp - 1).coerceAtLeast(0); invincible = 4 }
                 r[ey, ex].pass && r.enemies.none { it.x == ex && it.y == ey } ->
                     { e.x = ex; e.y = ey }
             }
