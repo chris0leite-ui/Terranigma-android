@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -14,7 +16,7 @@ import kotlin.math.abs
 import kotlin.math.min
 
 private const val FRAME_MS = 33L
-private const val HUD_H    = 56
+private const val HUD_H    = 72
 
 class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
@@ -29,8 +31,11 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
     private var dpadCy  = 0f
     private var playerFlash = 0
 
+    private var bestFloor = ctx.getSharedPreferences("prefs", 0).getInt("best", 0)
+
     @Suppress("DEPRECATION")
-    private val vib = ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val vib  = ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 40)
 
     init { holder.addCallback(this) }
 
@@ -38,15 +43,17 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
     override fun surfaceCreated(h: SurfaceHolder) { resume() }
 
-    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) {
+    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) { recalc(w, ht) }
+
+    override fun surfaceDestroyed(h: SurfaceHolder) { pause() }
+
+    private fun recalc(w: Int, ht: Int) {
         btnSize = min(w, ht) / 6
         val availH = ht - HUD_H - btnSize * 3
         ts     = min(w / g.room.w, availH / g.room.h).coerceAtLeast(8)
         dpadCx = w / 2f
         dpadCy = ht - btnSize * 1.5f
     }
-
-    override fun surfaceDestroyed(h: SurfaceHolder) { pause() }
 
     fun resume() {
         running = true
@@ -91,7 +98,9 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
         // enemies
         for (e in r.enemies) {
             val pad = ts * 0.15f
-            paint.color = if (e.flash > 0) Color.WHITE else Color.rgb(200, 0, 180)
+            paint.color = if (e.flash > 0) Color.WHITE
+                          else if (e.isBoss) Color.rgb(180, 0, 0)
+                          else Color.rgb(200, 0, 180)
             if (e.flash > 0) e.flash--
             val el = ox + e.x * ts; val et = oy + e.y * ts
             c.drawRect(el + pad, et + pad, el + ts - pad, et + ts - pad, paint)
@@ -119,12 +128,14 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
         c.drawCircle(pcx, pcy, (ts / 2 - ts / 5).f, paint)
 
         // HUD
-        paint.color = Color.DKGRAY; c.drawRect(8f, 8f, 208f, 44f, paint)
+        paint.color = Color.DKGRAY; c.drawRect(8f, 8f, 208f, 36f, paint)
         paint.color = if (g.hp > 3) Color.GREEN else Color.RED
         val barW = (200f * g.hp / g.maxHp).coerceAtLeast(0f)
-        if (barW > 0) c.drawRect(8f, 8f, 8f + barW, 44f, paint)
-        paint.color = Color.WHITE; paint.textSize = 22f
-        c.drawText("HP ${g.hp}/${g.maxHp}", 216f, 36f, paint)
+        if (barW > 0) c.drawRect(8f, 8f, 8f + barW, 36f, paint)
+        paint.color = Color.WHITE; paint.textSize = 20f
+        c.drawText("HP ${g.hp}/${g.maxHp}", 216f, 30f, paint)
+        paint.textSize = 18f
+        c.drawText("Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}", 8f, 60f, paint)
 
         renderDpad(c)
 
@@ -133,19 +144,22 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
             paint.color = Color.argb(180, 0, 0, 0)
             c.drawRect(0f, 0f, c.width.f, c.height.f, paint)
             paint.color = Color.RED; paint.textSize = 64f; paint.textAlign = Paint.Align.CENTER
-            c.drawText("GAME OVER", c.width / 2f, c.height / 2f - 40f, paint)
+            c.drawText("GAME OVER", c.width / 2f, c.height / 2f - 60f, paint)
             paint.color = Color.WHITE; paint.textSize = 30f
-            c.drawText("Tap to restart", c.width / 2f, c.height / 2f + 20f, paint)
+            c.drawText("Floor ${g.floor} reached", c.width / 2f, c.height / 2f, paint)
+            c.drawText("Best: Floor $bestFloor", c.width / 2f, c.height / 2f + 40f, paint)
+            paint.textSize = 26f
+            c.drawText("Tap to restart", c.width / 2f, c.height / 2f + 90f, paint)
             paint.textAlign = Paint.Align.LEFT
         }
     }
 
-    // D-pad: [ox, oy, label] triples
+    // D-pad
     private val DPAD = arrayOf(
-        floatArrayOf(0f, -1f),   // ▲
-        floatArrayOf(-1f, 0f),   // ◄
-        floatArrayOf(1f,  0f),   // ►
-        floatArrayOf(0f,  1f),   // ▼
+        floatArrayOf(0f, -1f),
+        floatArrayOf(-1f, 0f),
+        floatArrayOf(1f,  0f),
+        floatArrayOf(0f,  1f),
     )
     private val DPAD_LABELS = arrayOf("▲", "◄", "►", "▼")
 
@@ -171,7 +185,14 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.action != MotionEvent.ACTION_DOWN) return true
-        if (!g.alive) { g = Game(); playerFlash = 0; return true }
+        if (!g.alive) {
+            bestFloor = maxOf(bestFloor, g.floor)
+            context.getSharedPreferences("prefs", 0).edit().putInt("best", bestFloor).apply()
+            g = Game(); playerFlash = 0
+            val w = width; val h = height
+            if (w > 0 && h > 0) recalc(w, h)
+            return true
+        }
         val dx = e.x - dpadCx; val dy = e.y - dpadCy
         val half = btnSize * 0.5f
         val (mdx, mdy) = when {
@@ -181,9 +202,15 @@ class GameView(ctx: Context) : SurfaceView(ctx), SurfaceHolder.Callback {
             dx >  half && abs(dy) < half ->  1 to 0
             else -> return true
         }
-        val before = g.hp
+        val beforeHp    = g.hp
+        val beforeLevel = g.level
+        val beforeKills = g.kills
         g.move(mdx, mdy)
-        if (g.hp < before) { playerFlash = 10; vibrate() }
+        when {
+            g.level > beforeLevel -> tone.startTone(ToneGenerator.TONE_DTMF_A, 200)
+            g.kills > beforeKills -> tone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
+            g.hp < beforeHp       -> { playerFlash = 10; vibrate(); tone.startTone(ToneGenerator.TONE_PROP_NACK, 120) }
+        }
         return true
     }
 
@@ -201,6 +228,7 @@ private fun T.color() = when (this) {
     T.WALL  -> Color.rgb(55,   71,  79)
     T.WATER -> Color.rgb(30,  136, 229)
     T.DOOR  -> Color.rgb(255, 143,   0)
+    T.CHEST -> Color.rgb(255, 215,   0)
 }
 
 private val Int.f get() = toFloat()
