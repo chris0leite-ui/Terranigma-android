@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: 'temurin'
 
       - name: Cache Gradle
@@ -28,6 +28,8 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew :core:test
+        # BUILD_ANDROID is intentionally NOT set here so :app is excluded
+        # and the test job stays fast and SDK-free.
 
       - name: Upload test report
         if: always()
@@ -45,7 +47,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'          # Android builds prefer JDK 17
+          java-version: '17'
           distribution: 'temurin'
 
       - name: Cache Gradle
@@ -60,7 +62,7 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug
         env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          BUILD_ANDROID: "true"   # triggers include(":app") in settings.gradle.kts
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

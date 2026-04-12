@@ -23,9 +23,9 @@ dependencyResolutionManagement {
 rootProject.name = "Terranigma"
 include(":core")
 
-// :app requires the Android SDK — include it only when the SDK is present
-// (GitHub Actions sets ANDROID_HOME; local dev without SDK still runs :core tests)
-val androidHome = System.getenv("ANDROID_HOME") ?: ""
-if (androidHome.isNotEmpty()) {
+// :app is only included when explicitly requested via BUILD_ANDROID=true.
+// The test job leaves this unset; only the build-apk job sets it.
+// This keeps :core tests fast and independent of the Android SDK.
+if (System.getenv("BUILD_ANDROID") == "true") {
     include(":app")
 }
