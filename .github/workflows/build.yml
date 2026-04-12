@@ -60,7 +60,7 @@ jobs:
           restore-keys: gradle-android-
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug --stacktrace
         env:
           BUILD_ANDROID: "true"   # triggers include(":app") in settings.gradle.kts
 
