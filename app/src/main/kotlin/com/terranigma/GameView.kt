@@ -77,9 +77,7 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
         resume()
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        camera.viewportWidth.let { /* immutable for now */ }
-    }
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         pause()
