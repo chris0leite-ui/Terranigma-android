@@ -108,10 +108,10 @@ class GameTest {
     @Test fun `every floor has border walls`() {
         val g = Game()
         val r = g.room
-        for (x in 0 until r.w) {
-            assertEquals(T.WALL, r[0, x])
-            assertEquals(T.WALL, r[r.h - 1, x])
-        }
+        for (x in 0 until r.w) assertEquals(T.WALL, r[0, x])
+        for (y in 0 until r.h) { assertEquals(T.WALL, r[y, 0]); assertEquals(T.WALL, r[y, r.w - 1]) }
+        // bottom row: wall except the door position
+        for (x in 0 until r.w) if (r[r.h - 1, x] != T.DOOR) assertEquals(T.WALL, r[r.h - 1, x])
     }
 
     @Test fun `every floor has a door`() {
