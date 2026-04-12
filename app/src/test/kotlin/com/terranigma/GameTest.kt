@@ -65,4 +65,34 @@ class GameTest {
         g.move(0, 1)
         assertEquals(1, g.roomIdx)
     }
+
+    @Test fun `hp never goes below zero`() {
+        val g = Game()
+        g.room.enemies.clear(); g.room.enemies += Enemy(5, 3)
+        g.px = 3; g.py = 3
+        repeat(20) { g.invincible = 0; g.move(1, 0); g.px = 3 }
+        assertTrue(g.hp >= 0)
+    }
+
+    @Test fun `alive is false at zero hp`() {
+        val g = Game()
+        g.hp = 0
+        assertFalse(g.alive)
+    }
+
+    @Test fun `alive is true above zero hp`() {
+        val g = Game()
+        assertTrue(g.alive)
+    }
+
+    @Test fun `invincibility frames block damage`() {
+        val g = Game()
+        g.room.enemies.clear(); g.room.enemies += Enemy(5, 3)
+        g.px = 3; g.py = 3
+        g.move(1, 0)                   // takes damage, invincible set
+        val hpAfterFirstHit = g.hp
+        g.px = 3                       // reset position
+        g.move(1, 0)                   // should NOT take damage (i-frames active)
+        assertEquals(hpAfterFirstHit, g.hp)
+    }
 }
