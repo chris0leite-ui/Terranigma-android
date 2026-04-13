@@ -235,3 +235,76 @@ test('player attack scales with level', () => {
   g.move(1, 0)
   expect(e.hp).toBe(3)
 })
+
+// ── Round 4: Enemy varieties ───────────────────────────────────────────────────
+
+test('blocker does not move when player is far', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const b = new Enemy(8, 5, 3, 1, false, 'blocker')
+  g.room.enemies.push(b)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 2; g.py = 5
+  g.move(1, 0)
+  expect(b.x).toBe(8)
+  expect(b.y).toBe(5)
+})
+
+test('blocker attacks when player moves adjacent', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const b = new Enemy(5, 3, 3, 1, false, 'blocker')
+  g.room.enemies.push(b)
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
+})
+
+test('wanderer moves randomly and does not always chase', () => {
+  const g = new Game(1)
+  g.room.enemies.length = 0
+  const w = new Enemy(8, 8, 3, 1, false, 'wanderer')
+  g.room.enemies.push(w)
+  g.px = 1; g.py = 1
+  const startX = w.x; const startY = w.y
+  g.move(1, 0)
+  // wanderer at distance > 3 should not land exactly on player
+  expect(w.x === g.px && w.y === g.py).toBe(false)
+})
+
+test('archer stays at range and attacks player if within 3 tiles', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(5, 3, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
+})
+
+test('archer does not attack when out of range', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(10, 8, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  g.px = 1; g.py = 1
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before)
+})
+
+test('archer backs away when player is adjacent', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(5, 3, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  for (let x = 1; x < 11; x++) g.room.tiles[3][x] = T.GRASS
+  g.px = 4; g.py = 3
+  g.invincible = 100
+  g.move(1, 0) // bumps enemy — player stays at 4. On enemy turn, archer at 5 with player at 4 (dist=1), backs to 6
+  expect(a.x).toBeGreaterThan(5)
+})
