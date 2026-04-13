@@ -39,6 +39,7 @@ class Room {
     this.tiles = Array.from({ length: h }, () => Array(w).fill(T.GRASS))
     this.enemies = []
     this.spawnX = 1; this.spawnY = 1
+    this.cleared = false
   }
 }
 
@@ -56,6 +57,7 @@ class Game {
     this.weapon = 'sword'
     this.throwReady = true
     this.combo = 0; this.comboFlash = 0
+    this.spinCooldown = 0; this.soulsFreed = 0
     this.room = this.generateFloor(this.floor)
     this.px = this.room.spawnX; this.py = this.room.spawnY
   }
@@ -100,6 +102,17 @@ class Game {
     for (const e of r.enemies.slice()) {
       this._moveEnemy(e)
     }
+    if (this.spinCooldown > 0) this.spinCooldown--
+  }
+
+  spin() {
+    if (!this.alive || this.spinCooldown > 0) return
+    const r = this.room
+    for (const [ddx, ddy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]) {
+      const e = r.enemies.find(o => o.x === this.px + ddx && o.y === this.py + ddy)
+      if (e) this._hitEnemy(e, this.attack, 'stunned', 1)
+    }
+    this.spinCooldown = 5
   }
 
   throw(dx, dy) {
@@ -211,8 +224,10 @@ class Game {
 
   _onEnemyKilled(e, x, y) {
     this.kills++
+    this.soulsFreed++
     this.combo++; this.comboFlash = 60
     if (e.isBoss) this.room.tiles[y][x] = T.CHEST
+    if (this.room.enemies.length === 0) this.room.cleared = true
     this.xp++
     if (this.xp >= this.xpToNext) this._levelUp()
   }
