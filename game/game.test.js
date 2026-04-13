@@ -367,3 +367,63 @@ test('status clears when statusTurns reaches 0', () => {
   g.move(1, 0)
   expect(e.status).toBeNull()
 })
+
+// ── Round 6: Weapon types ──────────────────────────────────────────────────────
+
+test('spear hits 2 tiles ahead', () => {
+  const g = new Game()
+  g.weapon = 'spear'
+  g.room.enemies.length = 0
+  const near = new Enemy(6, 5, 3, 1); const far = new Enemy(7, 5, 3, 1)
+  g.room.enemies.push(near, far)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(near.hp).toBe(2)
+  expect(far.hp).toBe(2)
+})
+
+test('spear applies frozen to hit enemy', () => {
+  const g = new Game()
+  g.weapon = 'spear'
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.status).toBe('frozen')
+})
+
+test('axe hits adjacent perpendicular tiles', () => {
+  const g = new Game()
+  g.weapon = 'axe'
+  g.room.enemies.length = 0
+  const target = new Enemy(6, 5, 3, 1)
+  const above  = new Enemy(6, 4, 3, 1)
+  const below  = new Enemy(6, 6, 3, 1)
+  g.room.enemies.push(target, above, below)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[4][6] = T.GRASS; g.room.tiles[6][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(target.hp).toBeLessThan(3)
+  expect(above.hp).toBeLessThan(3)
+  expect(below.hp).toBeLessThan(3)
+})
+
+test('axe applies stunned to hit enemy', () => {
+  const g = new Game()
+  g.weapon = 'axe'
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.status).toBe('stunned')
+})
+
+test('game starts with sword weapon', () => {
+  const g = new Game()
+  expect(g.weapon).toBe('sword')
+})
