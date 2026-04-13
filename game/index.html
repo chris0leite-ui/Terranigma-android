@@ -6,9 +6,8 @@
 <title>Terranigma</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; display: flex; justify-content: center; align-items: center;
-       height: 100vh; overflow: hidden; touch-action: none; }
-canvas { display: block; }
+body { margin: 0; background: #000; overflow: hidden; touch-action: none; }
+canvas { position: fixed; top: 0; left: 0; display: block; }
 </style>
 </head>
 <body>
@@ -183,7 +182,12 @@ canvas.addEventListener('mousedown',  onInput)
 function onInput(ev) {
   ev.preventDefault()
   const touch = ev.touches ? ev.touches[0] : ev
-  const cx = touch.clientX; const cy = touch.clientY
+  // Always use getBoundingClientRect so coords are correct inside iframes / offset canvases
+  const rect = canvas.getBoundingClientRect()
+  const scaleX = canvas.width  / rect.width
+  const scaleY = canvas.height / rect.height
+  const cx = (touch.clientX - rect.left) * scaleX
+  const cy = (touch.clientY - rect.top)  * scaleY
 
   if (!g.alive) {
     bestFloor = Math.max(bestFloor, g.floor)
@@ -193,13 +197,13 @@ function onInput(ev) {
   }
 
   const dx = cx - dpadCx; const dy = cy - dpadCy
-  const half = btnSize * 0.5
+  const dead = btnSize * 0.25          // ignore taps too close to centre
+  const dist = Math.sqrt(dx*dx + dy*dy)
+  if (dist < dead) return
+  // Dominant-axis: whichever component is larger wins — much more forgiving than quadrants
   let mdx = 0; let mdy = 0
-  if      (dy < -half && Math.abs(dx) < half) mdy = -1
-  else if (dy >  half && Math.abs(dx) < half) mdy =  1
-  else if (dx < -half && Math.abs(dy) < half) mdx = -1
-  else if (dx >  half && Math.abs(dy) < half) mdx =  1
-  else return
+  if (Math.abs(dy) >= Math.abs(dx)) mdy = dy < 0 ? -1 : 1
+  else                               mdx = dx < 0 ? -1 : 1
 
   const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
   g.move(mdx, mdy)
