@@ -43,6 +43,7 @@ class GameTest {
     @Test fun `attacking enemy reduces its hp`() {
         val g = Game()
         val e = Enemy(6, 5); g.room.enemies.clear(); g.room.enemies += e
+        g.room[5, 6] = T.GRASS
         g.px = 5; g.py = 5
         g.move(1, 0)
         assertEquals(2, e.hp)
@@ -51,6 +52,7 @@ class GameTest {
     @Test fun `enemy removed when hp reaches zero`() {
         val g = Game()
         val e = Enemy(6, 5, hp = 1); g.room.enemies.clear(); g.room.enemies += e
+        g.room[5, 6] = T.GRASS
         g.px = 5; g.py = 5
         g.move(1, 0)
         assertTrue(g.room.enemies.isEmpty())
@@ -59,6 +61,7 @@ class GameTest {
     @Test fun `player takes damage when enemy intercepts`() {
         val g = Game()
         g.room.enemies.clear(); g.room.enemies += Enemy(5, 3)
+        g.room[3, 4] = T.GRASS
         g.px = 3; g.py = 3
         val before = g.hp
         g.move(1, 0)
@@ -68,6 +71,7 @@ class GameTest {
     @Test fun `hp never goes below zero`() {
         val g = Game()
         g.room.enemies.clear(); g.room.enemies += Enemy(5, 3)
+        g.room[3, 4] = T.GRASS
         g.px = 3; g.py = 3
         repeat(20) { g.invincible = 0; g.move(1, 0); g.px = 3 }
         assertTrue(g.hp >= 0)
@@ -84,6 +88,7 @@ class GameTest {
     @Test fun `invincibility frames block damage`() {
         val g = Game()
         g.room.enemies.clear(); g.room.enemies += Enemy(5, 3)
+        g.room[3, 4] = T.GRASS
         g.px = 3; g.py = 3
         g.move(1, 0)
         val hpAfter = g.hp; g.px = 3
@@ -182,6 +187,7 @@ class GameTest {
         val g = Game()
         g.room.enemies.clear()
         g.room.enemies += Enemy(5, 3, hp = 6, dmg = 2)
+        g.room[3, 4] = T.GRASS
         g.px = 3; g.py = 3
         val before = g.hp
         g.move(1, 0)
@@ -198,6 +204,7 @@ class GameTest {
         val g = Game()
         val boss = Enemy(6, 4, hp = 1, dmg = 2, isBoss = true)
         g.room.enemies.clear(); g.room.enemies += boss
+        g.room[4, 6] = T.GRASS
         g.px = 5; g.py = 4
         g.move(1, 0)
         assertEquals(T.CHEST, g.room[4, 6])
