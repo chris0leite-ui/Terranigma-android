@@ -3,7 +3,8 @@
 // ── Tile types ────────────────────────────────────────────────────────────────
 
 const T = { GRASS:'GRASS', WALL:'WALL', WATER:'WATER', DOOR:'DOOR', CHEST:'CHEST' }
-const PASS = { GRASS:true, WALL:false, WATER:false, DOOR:true, CHEST:true }
+const PASS = { GRASS:true, WALL:false, WATER:true, DOOR:true, CHEST:true }
+const PASS_ENEMY = { GRASS:true, WALL:false, WATER:false, DOOR:true, CHEST:true }
 
 // ── Seeded RNG (mulberry32) ───────────────────────────────────────────────────
 
@@ -88,18 +89,29 @@ class Game {
       this.hp = Math.min(this.hp + 3, this.maxHp)
       r.tiles[ny][nx] = T.GRASS
     }
+    if (tile === T.WATER) this.hp = Math.max(this.hp - 1, 0)
 
     if (this.invincible > 0) { this.invincible--; return }
 
     for (const e of r.enemies.slice()) {
-      const ex = e.x + Math.sign(this.px - e.x)
-      const ey = e.y + Math.sign(this.py - e.y)
-      if (ex === this.px && ey === this.py) {
-        this.hp = Math.max(this.hp - e.dmg, 0)
-        this.invincible = 4
-      } else if (PASS[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
-        e.x = ex; e.y = ey
-      }
+      this._moveEnemy(e)
+    }
+  }
+
+  _takeDamage(dmg) {
+    this.hp = Math.max(this.hp - dmg, 0)
+    this.invincible = 4
+  }
+
+  _moveEnemy(e) {
+    const r = this.room
+    const ex = e.x + Math.sign(this.px - e.x)
+    const ey = e.y + Math.sign(this.py - e.y)
+    if (ex === this.px && ey === this.py) {
+      this.hp = Math.max(this.hp - e.dmg, 0)
+      this.invincible = 4
+    } else if (PASS_ENEMY[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
+      e.x = ex; e.y = ey
     }
   }
 
