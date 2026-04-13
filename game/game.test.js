@@ -308,3 +308,62 @@ test('archer backs away when player is adjacent', () => {
   g.move(1, 0)
   expect(a.y).toBeGreaterThan(4)
 })
+
+// ── Round 5: Status effects ────────────────────────────────────────────────────
+
+test('poisoned enemy takes 1 damage per turn', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'poisoned'; e.statusTurns = 3
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.hp).toBe(2)
+})
+
+test('poison ticks down statusTurns', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'poisoned'; e.statusTurns = 3
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.statusTurns).toBe(2)
+})
+
+test('stunned enemy does not move', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'stunned'; e.statusTurns = 2
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 1; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(8)
+})
+
+test('frozen enemy does not move', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'frozen'; e.statusTurns = 2
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 1; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(8)
+})
+
+test('status clears when statusTurns reaches 0', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'stunned'; e.statusTurns = 1
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.status).toBeNull()
+})
