@@ -483,3 +483,42 @@ test('throwReady recharges after move', () => {
   g.move(1, 0)
   expect(g.throwReady).toBe(true)
 })
+
+// ── Round 8: Combo streak ─────────────────────────────────────────────────────
+
+test('combo starts at 0', () => {
+  expect(new Game().combo).toBe(0)
+})
+
+test('killing enemy increments combo', () => {
+  const g = new Game()
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5
+  g.move(1, 0)
+  expect(g.combo).toBe(1)
+})
+
+test('combo keeps incrementing on consecutive kills', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(6, 5, 1), new Enemy(6, 4, 1))
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[4][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  g.py = 4
+  g.move(1, 0)
+  expect(g.combo).toBe(2)
+})
+
+test('combo resets on taking damage', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(5, 3))
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  g.combo = 5
+  g.move(1, 0)
+  expect(g.combo).toBe(0)
+})
