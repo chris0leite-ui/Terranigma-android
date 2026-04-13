@@ -13,6 +13,13 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
       - name: Run unit tests
         run: |
           chmod +x gradlew
@@ -27,6 +34,15 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+      - name: Set Android SDK path
+        run: echo "sdk.dir=$ANDROID_HOME" >> local.properties
       - name: Build debug APK
         run: |
           chmod +x gradlew
