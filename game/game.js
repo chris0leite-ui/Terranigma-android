@@ -29,6 +29,7 @@ class Enemy {
     this.hp = hp; this.dmg = dmg
     this.flash = 0; this.isBoss = isBoss
     this.type = type
+    this.status = null; this.statusTurns = 0
   }
 }
 
@@ -105,6 +106,15 @@ class Game {
   }
 
   _moveEnemy(e) {
+    if (e.status === 'poisoned') {
+      e.hp = Math.max(e.hp - 1, 0)
+      if (e.hp <= 0) { this.room.enemies.splice(this.room.enemies.indexOf(e), 1); this._onEnemyKilled(e, e.x, e.y) }
+    }
+    if (e.status) {
+      e.statusTurns--
+      if (e.statusTurns <= 0) { e.status = null; e.statusTurns = 0 }
+      if (e.status === 'stunned' || e.status === 'frozen') return
+    }
     if (e.type === 'blocker')  return this._moveBlocker(e)
     if (e.type === 'wanderer') return this._moveWanderer(e)
     if (e.type === 'archer')   return this._moveArcher(e)
