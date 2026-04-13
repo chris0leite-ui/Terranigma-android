@@ -427,3 +427,59 @@ test('game starts with sword weapon', () => {
   const g = new Game()
   expect(g.weapon).toBe('sword')
 })
+
+// ── Round 7: Ranged throw ──────────────────────────────────────────────────────
+
+test('throw damages first enemy in line', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  const e1 = new Enemy(8, 5, 3, 1); const e2 = new Enemy(9, 5, 3, 1)
+  g.room.enemies.push(e1, e2)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e1.hp).toBe(2)
+  expect(e2.hp).toBe(3)
+})
+
+test('throw applies poison to hit enemy', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5, 3, 1)
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e.status).toBe('poisoned')
+})
+
+test('throw requires level 3', () => {
+  const g = new Game()
+  g.level = 2; g.throwReady = true
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e.hp).toBe(3)
+})
+
+test('throw sets throwReady false', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(g.throwReady).toBe(false)
+})
+
+test('throwReady recharges after move', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = false
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.throwReady).toBe(true)
+})
