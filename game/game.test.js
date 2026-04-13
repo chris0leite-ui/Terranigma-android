@@ -621,3 +621,70 @@ test('room.cleared false while enemies remain', () => {
   g.move(1, 0)
   expect(g.room.cleared).toBe(false)
 })
+
+// ── Round 11: Knockback ───────────────────────────────────────────────────────
+
+test('melee hit knocks enemy back 1 tile in attack direction', () => {
+  const g = new Game()
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(7)
+})
+
+test('knockback stops at wall', () => {
+  const g = new Game()
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.WALL
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(6)
+})
+
+test('knockback stops when another enemy is in the way', () => {
+  const g = new Game()
+  const e1 = new Enemy(6, 5, 10); const e2 = new Enemy(7, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e1, e2)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e1.x).toBe(6)
+})
+
+// ── Round 12: Combo multiplier ────────────────────────────────────────────────
+
+test('combo below 3 gives no bonus damage', () => {
+  const g = new Game()
+  g.combo = 2
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.hp).toBe(10 - g.attack)
+})
+
+test('combo 3+ adds +1 to damage', () => {
+  const g = new Game()
+  g.combo = 3
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.hp).toBe(10 - g.attack - 1)
+})
+
+test('combo 6+ adds +2 to damage', () => {
+  const g = new Game()
+  g.combo = 6
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.hp).toBe(10 - g.attack - 2)
+})
