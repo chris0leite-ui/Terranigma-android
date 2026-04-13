@@ -25,14 +25,23 @@ test('player moves on passable tile', () => {
   expect(g.px).toBe(startX + 1)
 })
 
-test('water blocks movement', () => {
+test('water is passable', () => {
   const g = new Game()
   g.room.enemies.length = 0
   g.px = 5; g.py = 4
   g.room.tiles[4][6] = T.WATER
   g.move(1, 0)
-  expect(g.px).toBe(5)
-  expect(g.py).toBe(4)
+  expect(g.px).toBe(6)
+})
+
+test('water deals 1 damage when stepped on', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 4
+  g.room.tiles[4][6] = T.WATER
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
 })
 
 test('attacking enemy reduces its hp', () => {
