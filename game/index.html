@@ -52,6 +52,7 @@ let spinAnim = 0                // frames of spin ring animation
 let frame = 0                   // global frame counter for enemy animations
 let zoneNameAlpha = 0           // zone-name card fade
 let prevZone = -1
+let shakeFrames = 0             // screen shake countdown
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,11 @@ function drawEnemy(e, el, et, ts, flashing) {
 
 function render() {
   const W = canvas.width; const H = canvas.height
+  ctx.save()
+  if (shakeFrames > 0) {
+    const mag = shakeFrames * 2.2
+    ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag)
+  }
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H)
 
   const r  = g.room
@@ -323,11 +329,13 @@ function render() {
   if (g.comboFlash > 0) {
     g.comboFlash--
     const alpha = Math.min(1, g.comboFlash / 15)
+    const bonus = Math.floor(g.combo / 3)
     ctx.globalAlpha = alpha
-    ctx.fillStyle = '#ff9800'; ctx.font = `bold ${Math.floor(ts * 0.6)}px monospace`; ctx.textAlign = 'center'
+    ctx.fillStyle = bonus > 0 ? '#ffd740' : '#ff9800'
+    ctx.font = `bold ${Math.floor(ts * 0.6)}px monospace`; ctx.textAlign = 'center'
     ctx.fillText(`${g.combo}x`, ox + r.w * ts / 2, oy + r.h * ts / 2 - ts / 4)
     ctx.font = `${Math.floor(ts * 0.35)}px monospace`
-    ctx.fillText('COMBO', ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
+    ctx.fillText(bonus > 0 ? `COMBO  +${bonus} ATK` : 'COMBO', ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
     ctx.globalAlpha = 1
   }
 
@@ -368,6 +376,7 @@ function render() {
     ctx.fillText('Tap to restart', W / 2, H / 2 + 90)
   }
   ctx.textAlign = 'left'
+  ctx.restore()
 }
 
 function roundRect(x, y, w, h, r) {
@@ -385,6 +394,7 @@ function roundRect(x, y, w, h, r) {
 function loop() {
   frame++
   if (playerFlash > 0) playerFlash--
+  if (shakeFrames > 0) shakeFrames--
 
   // floor-transition trigger
   if (g.floor !== prevFloor) {
@@ -424,7 +434,7 @@ function onInput(ev) {
   if (!g.alive) {
     bestFloor = Math.max(bestFloor, g.floor)
     localStorage.setItem('best', bestFloor)
-    g = new Game(); playerFlash = 0; throwMode = false
+    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false
     walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
     renderX = g.px; renderY = g.py; prevFloor = 1
     resize()
@@ -464,7 +474,7 @@ function onInput(ev) {
   g.move(mdx, mdy)
   if      (g.level  > beforeLevel) beep(1320, 200)
   else if (g.kills  > beforeKills) beep(880,  80)
-  else if (g.hp     < beforeHp)    { playerFlash = 10; beep(220, 120) }
+  else if (g.hp     < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
