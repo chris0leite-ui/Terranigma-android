@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application")
-    kotlin("android")
+    id("com.android.application") version "8.7.0"
+    kotlin("android") version "2.0.21"
 }
 
 android {
@@ -23,6 +23,6 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))
     implementation("androidx.appcompat:appcompat:1.7.0")
-    testImplementation("junit:junit:4.13.2")
 }
