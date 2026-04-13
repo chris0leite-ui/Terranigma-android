@@ -54,6 +54,7 @@ class Game {
     this.level = 1; this.floor = 1
     this.invincible = 0; this.kills = 0
     this.weapon = 'sword'
+    this.throwReady = true
     this.room = this.generateFloor(this.floor)
     this.px = this.room.spawnX; this.py = this.room.spawnY
   }
@@ -91,10 +92,25 @@ class Game {
     }
     if (tile === T.WATER) this.hp = Math.max(this.hp - 1, 0)
 
+    this.throwReady = true
+
     if (this.invincible > 0) { this.invincible--; return }
 
     for (const e of r.enemies.slice()) {
       this._moveEnemy(e)
+    }
+  }
+
+  throw(dx, dy) {
+    if (!this.alive || !this.throwReady || this.level < 3) return
+    this.throwReady = false
+    const r = this.room
+    let cx = this.px + dx; let cy = this.py + dy
+    while (cx >= 0 && cx < r.w && cy >= 0 && cy < r.h) {
+      const e = r.enemies.find(o => o.x === cx && o.y === cy)
+      if (e) { this._hitEnemy(e, this.attack, 'poisoned', 3); break }
+      if (!PASS[r.tiles[cy][cx]]) break
+      cx += dx; cy += dy
     }
   }
 
