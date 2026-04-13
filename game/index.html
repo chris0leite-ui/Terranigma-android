@@ -42,6 +42,10 @@ function resize() {
 let g = new Game()
 let playerFlash = 0
 let bestFloor = parseInt(localStorage.getItem('best') || '0')
+let renderX = 0, renderY = 0    // lerped player tile coords
+let transitionAlpha = 0         // floor-transition fade (1 = black)
+let prevFloor = 1
+let throwMode = false           // throw mode toggle
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -58,11 +62,17 @@ function beep(freq, dur) {
   } catch (_) {}
 }
 
-// ── Tile colours ──────────────────────────────────────────────────────────────
+// ── Colours ───────────────────────────────────────────────────────────────────
 
 const TILE_COLOR = {
   GRASS: '#388e3c', WALL: '#37474f', WATER: '#1e88e5',
   DOOR:  '#ff8f00', CHEST: '#ffd700'
+}
+const ENEMY_BASE = {
+  grunt: '#c800b4', archer: '#00bcd4', wanderer: '#ff9800', blocker: '#795548'
+}
+const STATUS_TINT = {
+  poisoned: 'rgba(0,200,0,0.45)', stunned: 'rgba(255,220,0,0.45)', frozen: 'rgba(80,160,255,0.45)'
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -88,41 +98,88 @@ function render() {
   for (const e of r.enemies) {
     const pad = ts * 0.15
     const el = ox + e.x * ts; const et = oy + e.y * ts
-    if (e.flash > 0) { ctx.fillStyle = '#fff'; e.flash-- }
-    else ctx.fillStyle = e.isBoss ? '#b40000' : '#c800b4'
+    let color
+    if (e.flash > 0) { color = '#fff'; e.flash-- }
+    else color = e.isBoss ? '#b40000' : (ENEMY_BASE[e.type] || '#c800b4')
+    ctx.fillStyle = color
     ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
+    if (e.status && STATUS_TINT[e.status]) {
+      ctx.fillStyle = STATUS_TINT[e.status]
+      ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
+    }
     // eyes
     ctx.fillStyle = '#000'
     const ecx = el + ts / 2; const ecy = et + ts * 0.4
     ctx.beginPath(); ctx.arc(ecx - ts * 0.15, ecy, ts * 0.07, 0, Math.PI * 2); ctx.fill()
     ctx.beginPath(); ctx.arc(ecx + ts * 0.15, ecy, ts * 0.07, 0, Math.PI * 2); ctx.fill()
-    // hp dots
-    const dotR = ts * 0.08
-    const totalW = e.hp * dotR * 2 + (e.hp - 1) * dotR
+    // hp dots (cap at 10 for display)
+    const dispHp = Math.min(e.hp, 10)
+    const dotR = ts * 0.07
+    const totalW = dispHp * dotR * 2 + (dispHp - 1) * dotR
     let dotX = el + ts / 2 - totalW / 2 + dotR
     const dotY = et + ts - pad - dotR
-    for (let i = 0; i < e.hp; i++) {
+    for (let i = 0; i < dispHp; i++) {
       ctx.fillStyle = '#00e676'
       ctx.beginPath(); ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2); ctx.fill()
       dotX += dotR * 3
     }
   }
 
-  // player
-  const pcx = ox + g.px * ts + ts / 2; const pcy = oy + g.py * ts + ts / 2
+  // player (lerped position)
+  const pcx = ox + renderX * ts + ts / 2; const pcy = oy + renderY * ts + ts / 2
   ctx.fillStyle = playerFlash > 0 ? '#f44336' : '#fff'
   ctx.beginPath(); ctx.arc(pcx, pcy, ts / 2 - 4, 0, Math.PI * 2); ctx.fill()
   ctx.fillStyle = playerFlash > 0 ? '#ffeb3b' : '#c83232'
   ctx.beginPath(); ctx.arc(pcx, pcy, ts / 2 - ts / 5, 0, Math.PI * 2); ctx.fill()
 
+  // mini-map — top-right corner of game area
+  const mm = 3
+  const mmX = ox + r.w * ts - r.w * mm - 2
+  const mmY = oy + 2
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(mmX - 1, mmY - 1, r.w * mm + 2, r.h * mm + 2)
+  for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+    ctx.fillStyle = TILE_COLOR[r.tiles[y][x]]
+    ctx.fillRect(mmX + x * mm, mmY + y * mm, mm, mm)
+  }
+  for (const e of r.enemies) {
+    ctx.fillStyle = ENEMY_BASE[e.type] || '#c800b4'
+    ctx.fillRect(mmX + e.x * mm, mmY + e.y * mm, mm, mm)
+  }
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(mmX + Math.round(g.px) * mm, mmY + Math.round(g.py) * mm, mm, mm)
+
   // HUD — HP bar
-  ctx.fillStyle = '#444'; ctx.fillRect(8, 8, 200, 28)
+  ctx.fillStyle = '#444'; ctx.fillRect(8, 8, 200, 26)
   const barW = Math.max(0, 200 * g.hp / g.maxHp)
-  if (barW > 0) { ctx.fillStyle = g.hp > 3 ? '#4caf50' : '#f44336'; ctx.fillRect(8, 8, barW, 28) }
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace'; ctx.textAlign = 'left'
-  ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 30)
-  ctx.font = '16px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}`, 8, 60)
+  if (barW > 0) { ctx.fillStyle = g.hp > 3 ? '#4caf50' : '#f44336'; ctx.fillRect(8, 8, barW, 26) }
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
+  ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
+  ctx.font = '14px monospace'
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]`, 8, 58)
+
+  // THROW button in HUD (unlocks at level 3)
+  if (g.level >= 3) {
+    const tbx = W - 80; const tby = 6; const tbw = 72; const tbh = 44
+    ctx.fillStyle = throwMode ? '#e53935' : (g.throwReady ? '#1565c0' : '#424242')
+    roundRect(tbx, tby, tbw, tbh, 8); ctx.fill()
+    if (!g.throwReady && !throwMode) { ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(tbx, tby, tbw, tbh, 8); ctx.fill() }
+    ctx.fillStyle = '#fff'; ctx.font = `bold 13px monospace`; ctx.textAlign = 'center'
+    ctx.fillText(throwMode ? 'THROW!' : 'THROW', tbx + tbw / 2, tby + 17)
+    ctx.font = '11px monospace'
+    ctx.fillText(throwMode ? 'tap dir' : (g.throwReady ? 'ready' : 'wait'), tbx + tbw / 2, tby + 33)
+  }
+
+  // combo overlay
+  if (g.comboFlash > 0) {
+    g.comboFlash--
+    const alpha = Math.min(1, g.comboFlash / 15)
+    ctx.globalAlpha = alpha
+    ctx.fillStyle = '#ff9800'; ctx.font = `bold ${Math.floor(ts * 0.6)}px monospace`; ctx.textAlign = 'center'
+    ctx.fillText(`${g.combo}x`, ox + r.w * ts / 2, oy + r.h * ts / 2 - ts / 4)
+    ctx.font = `${Math.floor(ts * 0.35)}px monospace`
+    ctx.fillText('COMBO', ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
+    ctx.globalAlpha = 1
+  }
 
   // D-pad
   ctx.font = `${Math.floor(btnSize * 0.5)}px sans-serif`
@@ -131,14 +188,21 @@ function render() {
   const dirs = [[0,-1,'▲'],[-1,0,'◄'],[1,0,'►'],[0,1,'▼']]
   for (const [ox2, oy2, lbl] of dirs) {
     const bx = dpadCx + ox2 * btnSize; const by = dpadCy + oy2 * btnSize
-    ctx.fillStyle = 'rgba(50,50,60,0.7)'
+    ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.7)' : 'rgba(50,50,60,0.7)'
     roundRect(bx - half, by - half, half * 2, half * 2, 14)
     ctx.fill()
-    ctx.strokeStyle = 'rgba(180,180,200,0.8)'; ctx.lineWidth = 2
+    ctx.strokeStyle = throwMode ? 'rgba(255,130,130,0.9)' : 'rgba(180,180,200,0.8)'; ctx.lineWidth = 2
     roundRect(bx - half, by - half, half * 2, half * 2, 14)
     ctx.stroke()
     ctx.fillStyle = '#fff'
     ctx.fillText(lbl, bx, by + btnSize * 0.18)
+  }
+
+  // floor-transition fade
+  if (transitionAlpha > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${transitionAlpha})`
+    ctx.fillRect(0, 0, W, H)
+    transitionAlpha = Math.max(0, transitionAlpha - 0.05)
   }
 
   // game-over overlay
@@ -170,6 +234,18 @@ function roundRect(x, y, w, h, r) {
 
 function loop() {
   if (playerFlash > 0) playerFlash--
+
+  // floor-transition trigger
+  if (g.floor !== prevFloor) {
+    transitionAlpha = 1.0
+    renderX = g.px; renderY = g.py   // snap on floor change
+    prevFloor = g.floor
+  }
+
+  // lerp player render position
+  renderX += (g.px - renderX) * 0.35
+  renderY += (g.py - renderY) * 0.35
+
   render()
   requestAnimationFrame(loop)
 }
@@ -182,7 +258,6 @@ canvas.addEventListener('mousedown',  onInput)
 function onInput(ev) {
   ev.preventDefault()
   const touch = ev.touches ? ev.touches[0] : ev
-  // Always use getBoundingClientRect so coords are correct inside iframes / offset canvases
   const rect = canvas.getBoundingClientRect()
   const scaleX = canvas.width  / rect.width
   const scaleY = canvas.height / rect.height
@@ -192,20 +267,35 @@ function onInput(ev) {
   if (!g.alive) {
     bestFloor = Math.max(bestFloor, g.floor)
     localStorage.setItem('best', bestFloor)
-    g = new Game(); playerFlash = 0; resize()
+    g = new Game(); playerFlash = 0; throwMode = false
+    renderX = g.px; renderY = g.py; prevFloor = 1
+    resize()
+    return
+  }
+
+  // THROW button tap (in HUD area, right side)
+  if (g.level >= 3 && cy < HUD_H && cx > canvas.width - 80) {
+    if (g.throwReady) throwMode = !throwMode
     return
   }
 
   const dx = cx - dpadCx; const dy = cy - dpadCy
-  const dead = btnSize * 0.25          // ignore taps too close to centre
+  const dead = btnSize * 0.25
   const dist = Math.sqrt(dx*dx + dy*dy)
   if (dist < dead) return
-  // Dominant-axis: whichever component is larger wins — much more forgiving than quadrants
   let mdx = 0; let mdy = 0
   if (Math.abs(dy) >= Math.abs(dx)) mdy = dy < 0 ? -1 : 1
   else                               mdx = dx < 0 ? -1 : 1
 
   const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+
+  if (throwMode && g.throwReady) {
+    g.throw(mdx, mdy)
+    throwMode = false
+    if (g.kills > beforeKills) beep(660, 80)
+    return
+  }
+
   g.move(mdx, mdy)
   if      (g.level  > beforeLevel) beep(1320, 200)
   else if (g.kills  > beforeKills) beep(880,  80)
@@ -215,6 +305,7 @@ function onInput(ev) {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('resize', () => { resize(); render() })
+renderX = g.px; renderY = g.py; prevFloor = g.floor
 resize()
 loop()
 </script>
