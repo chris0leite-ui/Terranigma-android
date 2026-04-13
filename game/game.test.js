@@ -25,14 +25,23 @@ test('player moves on passable tile', () => {
   expect(g.px).toBe(startX + 1)
 })
 
-test('water blocks movement', () => {
+test('water is passable', () => {
   const g = new Game()
   g.room.enemies.length = 0
   g.px = 5; g.py = 4
   g.room.tiles[4][6] = T.WATER
   g.move(1, 0)
-  expect(g.px).toBe(5)
-  expect(g.py).toBe(4)
+  expect(g.px).toBe(6)
+})
+
+test('water deals 1 damage when stepped on', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 4
+  g.room.tiles[4][6] = T.WATER
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
 })
 
 test('attacking enemy reduces its hp', () => {
@@ -225,4 +234,292 @@ test('player attack scales with level', () => {
   g.px = 5; g.attack = 2
   g.move(1, 0)
   expect(e.hp).toBe(3)
+})
+
+// ── Round 4: Enemy varieties ───────────────────────────────────────────────────
+
+test('blocker does not move when player is far', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const b = new Enemy(8, 5, 3, 1, false, 'blocker')
+  g.room.enemies.push(b)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 2; g.py = 5
+  g.move(1, 0)
+  expect(b.x).toBe(8)
+  expect(b.y).toBe(5)
+})
+
+test('blocker attacks when player moves adjacent', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const b = new Enemy(5, 3, 3, 1, false, 'blocker')
+  g.room.enemies.push(b)
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
+})
+
+test('wanderer moves randomly and does not always chase', () => {
+  const g = new Game(1)
+  g.room.enemies.length = 0
+  const w = new Enemy(8, 8, 3, 1, false, 'wanderer')
+  g.room.enemies.push(w)
+  g.px = 1; g.py = 1
+  const startX = w.x; const startY = w.y
+  g.move(1, 0)
+  // wanderer at distance > 3 should not land exactly on player
+  expect(w.x === g.px && w.y === g.py).toBe(false)
+})
+
+test('archer stays at range and attacks player if within 3 tiles', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(5, 3, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before - 1)
+})
+
+test('archer does not attack when out of range', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(10, 8, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  g.px = 1; g.py = 1
+  const before = g.hp
+  g.move(1, 0)
+  expect(g.hp).toBe(before)
+})
+
+test('archer backs away when player is adjacent', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(5, 4, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  for (let y = 2; y < 8; y++) for (let x = 3; x < 9; x++) g.room.tiles[y][x] = T.GRASS
+  g.px = 4; g.py = 3
+  // player moves to (5,3) — no enemy there; archer at (5,4) is dist=1 from player → backs to (5,5)
+  g.move(1, 0)
+  expect(a.y).toBeGreaterThan(4)
+})
+
+// ── Round 5: Status effects ────────────────────────────────────────────────────
+
+test('poisoned enemy takes 1 damage per turn', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'poisoned'; e.statusTurns = 3
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.hp).toBe(2)
+})
+
+test('poison ticks down statusTurns', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'poisoned'; e.statusTurns = 3
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.statusTurns).toBe(2)
+})
+
+test('stunned enemy does not move', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'stunned'; e.statusTurns = 2
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 1; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(8)
+})
+
+test('frozen enemy does not move', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'frozen'; e.statusTurns = 2
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 1; g.py = 5
+  g.move(1, 0)
+  expect(e.x).toBe(8)
+})
+
+test('status clears when statusTurns reaches 0', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5)
+  e.status = 'stunned'; e.statusTurns = 1
+  g.room.enemies.push(e)
+  g.px = 1; g.py = 1
+  g.move(1, 0)
+  expect(e.status).toBeNull()
+})
+
+// ── Round 6: Weapon types ──────────────────────────────────────────────────────
+
+test('spear hits 2 tiles ahead', () => {
+  const g = new Game()
+  g.weapon = 'spear'
+  g.room.enemies.length = 0
+  const near = new Enemy(6, 5, 3, 1); const far = new Enemy(7, 5, 3, 1)
+  g.room.enemies.push(near, far)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(near.hp).toBe(2)
+  expect(far.hp).toBe(2)
+})
+
+test('spear applies frozen to hit enemy', () => {
+  const g = new Game()
+  g.weapon = 'spear'
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.status).toBe('frozen')
+})
+
+test('axe hits adjacent perpendicular tiles', () => {
+  const g = new Game()
+  g.weapon = 'axe'
+  g.room.enemies.length = 0
+  const target = new Enemy(6, 5, 3, 1)
+  const above  = new Enemy(6, 4, 3, 1)
+  const below  = new Enemy(6, 6, 3, 1)
+  g.room.enemies.push(target, above, below)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[4][6] = T.GRASS; g.room.tiles[6][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(target.hp).toBeLessThan(3)
+  expect(above.hp).toBeLessThan(3)
+  expect(below.hp).toBeLessThan(3)
+})
+
+test('axe applies stunned to hit enemy', () => {
+  const g = new Game()
+  g.weapon = 'axe'
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(e.status).toBe('stunned')
+})
+
+test('game starts with sword weapon', () => {
+  const g = new Game()
+  expect(g.weapon).toBe('sword')
+})
+
+// ── Round 7: Ranged throw ──────────────────────────────────────────────────────
+
+test('throw damages first enemy in line', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  const e1 = new Enemy(8, 5, 3, 1); const e2 = new Enemy(9, 5, 3, 1)
+  g.room.enemies.push(e1, e2)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e1.hp).toBe(2)
+  expect(e2.hp).toBe(3)
+})
+
+test('throw applies poison to hit enemy', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5, 3, 1)
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e.status).toBe('poisoned')
+})
+
+test('throw requires level 3', () => {
+  const g = new Game()
+  g.level = 2; g.throwReady = true
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5, 3, 1)
+  g.room.enemies.push(e)
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e.hp).toBe(3)
+})
+
+test('throw sets throwReady false', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = true
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(g.throwReady).toBe(false)
+})
+
+test('throwReady recharges after move', () => {
+  const g = new Game()
+  g.level = 3; g.throwReady = false
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.throwReady).toBe(true)
+})
+
+// ── Round 8: Combo streak ─────────────────────────────────────────────────────
+
+test('combo starts at 0', () => {
+  expect(new Game().combo).toBe(0)
+})
+
+test('killing enemy increments combo', () => {
+  const g = new Game()
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5
+  g.move(1, 0)
+  expect(g.combo).toBe(1)
+})
+
+test('combo keeps incrementing on consecutive kills', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(6, 5, 1), new Enemy(6, 4, 1))
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[4][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  g.py = 4
+  g.move(1, 0)
+  expect(g.combo).toBe(2)
+})
+
+test('combo resets on taking damage', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(5, 3))
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  g.combo = 5
+  g.move(1, 0)
+  expect(g.combo).toBe(0)
 })

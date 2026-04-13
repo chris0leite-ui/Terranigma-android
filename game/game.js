@@ -3,7 +3,8 @@
 // ── Tile types ────────────────────────────────────────────────────────────────
 
 const T = { GRASS:'GRASS', WALL:'WALL', WATER:'WATER', DOOR:'DOOR', CHEST:'CHEST' }
-const PASS = { GRASS:true, WALL:false, WATER:false, DOOR:true, CHEST:true }
+const PASS = { GRASS:true, WALL:false, WATER:true, DOOR:true, CHEST:true }
+const PASS_ENEMY = { GRASS:true, WALL:false, WATER:false, DOOR:true, CHEST:true }
 
 // ── Seeded RNG (mulberry32) ───────────────────────────────────────────────────
 
@@ -23,10 +24,12 @@ function makeRng(seed) {
 // ── Data classes ──────────────────────────────────────────────────────────────
 
 class Enemy {
-  constructor(x, y, hp = 3, dmg = 1, isBoss = false) {
+  constructor(x, y, hp = 3, dmg = 1, isBoss = false, type = 'grunt') {
     this.x = x; this.y = y
     this.hp = hp; this.dmg = dmg
     this.flash = 0; this.isBoss = isBoss
+    this.type = type
+    this.status = null; this.statusTurns = 0
   }
 }
 
@@ -50,6 +53,9 @@ class Game {
     this.xp = 0; this.xpToNext = 3
     this.level = 1; this.floor = 1
     this.invincible = 0; this.kills = 0
+    this.weapon = 'sword'
+    this.throwReady = true
+    this.combo = 0; this.comboFlash = 0
     this.room = this.generateFloor(this.floor)
     this.px = this.room.spawnX; this.py = this.room.spawnY
   }
@@ -65,13 +71,8 @@ class Game {
     if (nx < 0 || nx >= r.w || ny < 0 || ny >= r.h) return
     if (!PASS[r.tiles[ny][nx]]) return
 
-    const hit = r.enemies.find(e => e.x === nx && e.y === ny)
-    if (hit) {
-      hit.hp -= this.attack; hit.flash = 8
-      if (hit.hp <= 0) {
-        r.enemies.splice(r.enemies.indexOf(hit), 1)
-        this._onEnemyKilled(hit, nx, ny)
-      }
+    if (r.enemies.some(e => e.x === nx && e.y === ny)) {
+      this._doAttack(nx, ny, dx, dy)
       return
     }
 
@@ -80,6 +81,8 @@ class Game {
     const tile = r.tiles[ny][nx]
     if (tile === T.DOOR) {
       this.floor++
+      if (this.floor >= 6 && this.weapon === 'spear') this.weapon = 'axe'
+      else if (this.floor >= 3 && this.weapon === 'sword') this.weapon = 'spear'
       this.room = this.generateFloor(this.floor)
       this.px = this.room.spawnX; this.py = this.room.spawnY
       return
@@ -88,23 +91,127 @@ class Game {
       this.hp = Math.min(this.hp + 3, this.maxHp)
       r.tiles[ny][nx] = T.GRASS
     }
+    if (tile === T.WATER) this.hp = Math.max(this.hp - 1, 0)
+
+    this.throwReady = true
 
     if (this.invincible > 0) { this.invincible--; return }
 
     for (const e of r.enemies.slice()) {
-      const ex = e.x + Math.sign(this.px - e.x)
-      const ey = e.y + Math.sign(this.py - e.y)
-      if (ex === this.px && ey === this.py) {
-        this.hp = Math.max(this.hp - e.dmg, 0)
-        this.invincible = 4
-      } else if (PASS[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
-        e.x = ex; e.y = ey
+      this._moveEnemy(e)
+    }
+  }
+
+  throw(dx, dy) {
+    if (!this.alive || !this.throwReady || this.level < 3) return
+    this.throwReady = false
+    const r = this.room
+    let cx = this.px + dx; let cy = this.py + dy
+    while (cx >= 0 && cx < r.w && cy >= 0 && cy < r.h) {
+      const e = r.enemies.find(o => o.x === cx && o.y === cy)
+      if (e) { this._hitEnemy(e, this.attack, 'poisoned', 3); break }
+      if (!PASS[r.tiles[cy][cx]]) break
+      cx += dx; cy += dy
+    }
+  }
+
+  _hitEnemy(e, dmg, status, statusTurns) {
+    e.hp -= dmg; e.flash = 8
+    if (status && !e.status) { e.status = status; e.statusTurns = statusTurns }
+    if (e.hp <= 0) {
+      this.room.enemies.splice(this.room.enemies.indexOf(e), 1)
+      this._onEnemyKilled(e, e.x, e.y)
+    }
+  }
+
+  _doAttack(nx, ny, dx, dy) {
+    const r = this.room
+    if (this.weapon === 'spear') {
+      const nx2 = nx + dx; const ny2 = ny + dy
+      for (const e of r.enemies.filter(e => (e.x===nx&&e.y===ny)||(e.x===nx2&&e.y===ny2)).slice())
+        this._hitEnemy(e, this.attack, 'frozen', 2)
+      return
+    }
+    if (this.weapon === 'axe') {
+      const dmg = Math.max(1, Math.floor(this.attack * 0.75))
+      const perp = dx !== 0 ? [[nx, ny-1],[nx, ny],[nx, ny+1]] : [[nx-1, ny],[nx, ny],[nx+1, ny]]
+      for (const [ex, ey] of perp) {
+        const e = r.enemies.find(o => o.x===ex && o.y===ey)
+        if (e) this._hitEnemy(e, dmg, 'stunned', 1)
       }
+      return
+    }
+    // sword (default)
+    const hit = r.enemies.find(e => e.x===nx && e.y===ny)
+    if (hit) this._hitEnemy(hit, this.attack, null, 0)
+  }
+
+  _takeDamage(dmg) {
+    this.hp = Math.max(this.hp - dmg, 0)
+    this.invincible = 4
+    this.combo = 0; this.comboFlash = 0
+  }
+
+  _moveEnemy(e) {
+    if (e.status === 'poisoned') {
+      e.hp = Math.max(e.hp - 1, 0)
+      if (e.hp <= 0) { this.room.enemies.splice(this.room.enemies.indexOf(e), 1); this._onEnemyKilled(e, e.x, e.y) }
+    }
+    if (e.status) {
+      e.statusTurns--
+      if (e.statusTurns <= 0) { e.status = null; e.statusTurns = 0 }
+      if (e.status === 'stunned' || e.status === 'frozen') return
+    }
+    if (e.type === 'blocker')  return this._moveBlocker(e)
+    if (e.type === 'wanderer') return this._moveWanderer(e)
+    if (e.type === 'archer')   return this._moveArcher(e)
+    this._chasePlayer(e)
+  }
+
+  _chasePlayer(e) {
+    const r = this.room
+    const ex = e.x + Math.sign(this.px - e.x)
+    const ey = e.y + Math.sign(this.py - e.y)
+    if (ex === this.px && ey === this.py) {
+      this._takeDamage(e.dmg)
+    } else if (PASS_ENEMY[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
+      e.x = ex; e.y = ey
+    }
+  }
+
+  _moveBlocker(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist <= 1) this._takeDamage(e.dmg)
+  }
+
+  _moveWanderer(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist <= 3) { this._chasePlayer(e); return }
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]]
+    const [dx, dy] = dirs[this._rng.nextInt(0, 4)]
+    const nx = e.x + dx; const ny = e.y + dy
+    const r = this.room
+    if (PASS_ENEMY[r.tiles[ny]?.[nx]] && !r.enemies.some(o => o !== e && o.x === nx && o.y === ny))
+      { e.x = nx; e.y = ny }
+  }
+
+  _moveArcher(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist > 3) { this._chasePlayer(e); return }
+    if (dist <= 3) this._takeDamage(e.dmg)
+    if (dist < 2) {
+      // back away
+      const r = this.room
+      const ex = e.x - Math.sign(this.px - e.x)
+      const ey = e.y - Math.sign(this.py - e.y)
+      if (PASS_ENEMY[r.tiles[ey]?.[ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey))
+        { e.x = ex; e.y = ey }
     }
   }
 
   _onEnemyKilled(e, x, y) {
     this.kills++
+    this.combo++; this.comboFlash = 60
     if (e.isBoss) this.room.tiles[y][x] = T.CHEST
     this.xp++
     if (this.xp >= this.xpToNext) this._levelUp()
@@ -148,9 +255,13 @@ class Game {
     } else {
       const n = Math.min(f + 1, 6)
       for (let i = 0; i < n; i++) {
-        const e = (f >= 5 && rng.nextInt(0, 4) === 0)
-          ? new Enemy(0, 0, 6, 2)
-          : new Enemy(0, 0, 3, 1)
+        let e
+        if (f >= 5 && rng.nextInt(0, 4) === 0) e = new Enemy(0, 0, 6, 2)
+        else if (f >= 3) {
+          const t = rng.nextInt(0, 3)
+          const type = t === 0 ? 'archer' : t === 1 ? 'wanderer' : 'blocker'
+          e = new Enemy(0, 0, 3, 1, false, type)
+        } else e = new Enemy(0, 0, 3, 1)
         this._spawnEnemy(r, e)
       }
     }
