@@ -46,6 +46,12 @@ let renderX = 0, renderY = 0    // lerped player tile coords
 let transitionAlpha = 0         // floor-transition fade (1 = black)
 let prevFloor = 1
 let throwMode = false           // throw mode toggle
+let walkPhase = 0               // player walk bob oscillator
+let playerDir = { dx: 0, dy: 1 }// last direction moved
+let spinAnim = 0                // frames of spin ring animation
+let frame = 0                   // global frame counter for enemy animations
+let zoneNameAlpha = 0           // zone-name card fade
+let prevZone = -1
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -62,17 +68,145 @@ function beep(freq, dur) {
   } catch (_) {}
 }
 
-// ── Colours ───────────────────────────────────────────────────────────────────
+// ── Zone palettes ─────────────────────────────────────────────────────────────
+
+const ZONES = [
+  { grass:'#388e3c', wall:'#37474f', water:'#1e88e5', name:'Underworld' },
+  { grass:'#4a1a00', wall:'#1c0800', water:'#ff5722', name:'Lava Caves' },
+  { grass:'#0d47a1', wall:'#093060', water:'#00bcd4', name:'Sky Realm'  },
+  { grass:'#1a0033', wall:'#0d0022', water:'#7b1fa2', name:'The Void'   },
+]
+function getZone(f) { return Math.min(Math.floor((f - 1) / 5), 3) }
 
 const TILE_COLOR = {
-  GRASS: '#388e3c', WALL: '#37474f', WATER: '#1e88e5',
-  DOOR:  '#ff8f00', CHEST: '#ffd700'
+  DOOR: '#ff8f00', CHEST: '#ffd700'
 }
+function tileColor(type) {
+  if (TILE_COLOR[type]) return TILE_COLOR[type]
+  const z = ZONES[getZone(g.floor)]
+  if (type === 'GRASS') return z.grass
+  if (type === 'WALL')  return z.wall
+  if (type === 'WATER') return z.water
+  return '#000'
+}
+
 const ENEMY_BASE = {
   grunt: '#c800b4', archer: '#00bcd4', wanderer: '#ff9800', blocker: '#795548'
 }
 const STATUS_TINT = {
   poisoned: 'rgba(0,200,0,0.45)', stunned: 'rgba(255,220,0,0.45)', frozen: 'rgba(80,160,255,0.45)'
+}
+
+// ── Drawing helpers ───────────────────────────────────────────────────────────
+
+function drawPlayer(pcx, pcy, ts) {
+  const s = ts * 0.38
+  const hurt = playerFlash > 0
+  const bob = Math.sin(walkPhase) * s * 0.18
+  // boots
+  ctx.fillStyle = hurt ? '#ff8a65' : '#4e342e'
+  ctx.fillRect(pcx - s * 0.45, pcy + s * 0.3 + bob,  s * 0.38, s * 0.55)
+  ctx.fillRect(pcx + s * 0.07, pcy + s * 0.3 - bob, s * 0.38, s * 0.55)
+  // tunic body
+  ctx.fillStyle = hurt ? '#ef9a9a' : '#1565c0'
+  ctx.fillRect(pcx - s * 0.42, pcy - s * 0.25, s * 0.84, s * 0.65)
+  // cape
+  ctx.fillStyle = hurt ? '#e57373' : '#0d47a1'
+  ctx.beginPath()
+  ctx.moveTo(pcx - s * 0.42, pcy - s * 0.25)
+  ctx.lineTo(pcx - s * 0.6,  pcy + s * 0.4)
+  ctx.lineTo(pcx - s * 0.1,  pcy + s * 0.25)
+  ctx.closePath(); ctx.fill()
+  // head
+  ctx.fillStyle = hurt ? '#ffccbc' : '#ffe0b2'
+  ctx.beginPath(); ctx.arc(pcx, pcy - s * 0.42, s * 0.38, 0, Math.PI * 2); ctx.fill()
+  // hair
+  ctx.fillStyle = hurt ? '#bf360c' : '#5d4037'
+  ctx.beginPath(); ctx.arc(pcx, pcy - s * 0.58, s * 0.28, Math.PI, Math.PI * 2); ctx.fill()
+  // directional eye dot
+  const ex = pcx + playerDir.dx * s * 0.18
+  const ey = pcy - s * 0.42 + playerDir.dy * s * 0.14
+  ctx.fillStyle = '#212121'
+  ctx.beginPath(); ctx.arc(ex, ey, s * 0.09, 0, Math.PI * 2); ctx.fill()
+}
+
+function drawEnemy(e, el, et, ts, flashing) {
+  const pad = ts * 0.15
+  const cx = el + ts / 2; const cy = et + ts / 2
+  const baseColor = flashing ? '#fff' : (e.isBoss ? '#b40000' : (ENEMY_BASE[e.type] || '#c800b4'))
+  const type = e.isBoss ? 'boss' : (e.type || 'grunt')
+  ctx.save()
+  if (e.status && STATUS_TINT[e.status]) {
+    ctx.shadowColor = e.status === 'frozen' ? '#64b5f6' : e.status === 'poisoned' ? '#69f0ae' : '#fff176'
+    ctx.shadowBlur = ts * 0.3
+  }
+  if (type === 'grunt') {
+    ctx.fillStyle = baseColor
+    ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
+    // horns
+    ctx.fillStyle = flashing ? '#fff' : '#880e4f'
+    const hx = el + ts * 0.3; const hy = et + pad
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx - ts*0.1, et); ctx.lineTo(hx + ts*0.1, hy); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(cx + ts*0.08, hy); ctx.lineTo(cx + ts*0.18, et); ctx.lineTo(cx + ts*0.28, hy); ctx.fill()
+  } else if (type === 'archer') {
+    // diamond body
+    ctx.fillStyle = baseColor
+    ctx.beginPath(); ctx.moveTo(cx, et + pad); ctx.lineTo(el + ts - pad, cy)
+    ctx.lineTo(cx, et + ts - pad); ctx.lineTo(el + pad, cy); ctx.closePath(); ctx.fill()
+    // arrow tip pointing toward player
+    const adx = Math.sign(g.px - e.x); const ady = Math.sign(g.py - e.y)
+    ctx.fillStyle = flashing ? '#fff' : '#00838f'
+    ctx.beginPath()
+    ctx.moveTo(cx + adx * ts * 0.42, cy + ady * ts * 0.42)
+    ctx.lineTo(cx + adx * ts * 0.22 - ady * ts * 0.12, cy + ady * ts * 0.22 + adx * ts * 0.12)
+    ctx.lineTo(cx + adx * ts * 0.22 + ady * ts * 0.12, cy + ady * ts * 0.22 - adx * ts * 0.12)
+    ctx.closePath(); ctx.fill()
+  } else if (type === 'wanderer') {
+    ctx.fillStyle = baseColor
+    ctx.beginPath(); ctx.arc(cx, cy, ts * 0.38, 0, Math.PI * 2); ctx.fill()
+    // 3 orbiting dots
+    for (let i = 0; i < 3; i++) {
+      const a = (frame * 0.07 + i * Math.PI * 2 / 3)
+      ctx.fillStyle = flashing ? '#fff' : '#e65100'
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a)*ts*0.28, cy + Math.sin(a)*ts*0.28, ts*0.07, 0, Math.PI*2); ctx.fill()
+    }
+  } else if (type === 'blocker') {
+    ctx.fillStyle = baseColor
+    ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
+    // shield on player-facing side
+    const sdx = Math.sign(g.px - e.x); const sdy = Math.sign(g.py - e.y)
+    ctx.fillStyle = flashing ? '#fff' : '#bcaaa4'
+    ctx.beginPath()
+    ctx.arc(cx + sdx * ts * 0.28, cy + sdy * ts * 0.28, ts * 0.22,
+      Math.atan2(sdy, sdx) - Math.PI * 0.6, Math.atan2(sdy, sdx) + Math.PI * 0.6)
+    ctx.lineTo(cx + sdx * ts * 0.28, cy + sdy * ts * 0.28); ctx.closePath(); ctx.fill()
+  } else if (type === 'boss') {
+    const pulse = 1 + Math.sin(frame * 0.1) * 0.06
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse)
+    ctx.fillStyle = baseColor
+    ctx.fillRect(-ts * 0.44, -ts * 0.44, ts * 0.88, ts * 0.88)
+    // crown spikes
+    ctx.fillStyle = '#ffd700'
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath()
+      ctx.moveTo(i * ts * 0.24 - ts * 0.13, -ts * 0.44)
+      ctx.lineTo(i * ts * 0.24, -ts * 0.62)
+      ctx.lineTo(i * ts * 0.24 + ts * 0.13, -ts * 0.44)
+      ctx.closePath(); ctx.fill()
+    }
+    ctx.restore()
+  }
+  if (e.status && STATUS_TINT[e.status]) {
+    ctx.fillStyle = STATUS_TINT[e.status]
+    ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
+  }
+  ctx.restore()
+  // eyes (all types)
+  if (type !== 'boss') {
+    ctx.fillStyle = '#000'
+    ctx.beginPath(); ctx.arc(cx - ts*0.13, cy - ts*0.05, ts*0.07, 0, Math.PI*2); ctx.fill()
+    ctx.beginPath(); ctx.arc(cx + ts*0.13, cy - ts*0.05, ts*0.07, 0, Math.PI*2); ctx.fill()
+  }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -88,7 +222,7 @@ function render() {
   // tiles
   for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
     const px = ox + x * ts; const py = oy + y * ts
-    ctx.fillStyle = TILE_COLOR[r.tiles[y][x]]
+    ctx.fillStyle = tileColor(r.tiles[y][x])
     ctx.fillRect(px, py, ts, ts)
     ctx.fillStyle = 'rgba(0,0,0,0.2)'
     ctx.fillRect(px, py, ts, ts)
@@ -96,23 +230,12 @@ function render() {
 
   // enemies
   for (const e of r.enemies) {
-    const pad = ts * 0.15
     const el = ox + e.x * ts; const et = oy + e.y * ts
-    let color
-    if (e.flash > 0) { color = '#fff'; e.flash-- }
-    else color = e.isBoss ? '#b40000' : (ENEMY_BASE[e.type] || '#c800b4')
-    ctx.fillStyle = color
-    ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
-    if (e.status && STATUS_TINT[e.status]) {
-      ctx.fillStyle = STATUS_TINT[e.status]
-      ctx.fillRect(el + pad, et + pad, ts - pad * 2, ts - pad * 2)
-    }
-    // eyes
-    ctx.fillStyle = '#000'
-    const ecx = el + ts / 2; const ecy = et + ts * 0.4
-    ctx.beginPath(); ctx.arc(ecx - ts * 0.15, ecy, ts * 0.07, 0, Math.PI * 2); ctx.fill()
-    ctx.beginPath(); ctx.arc(ecx + ts * 0.15, ecy, ts * 0.07, 0, Math.PI * 2); ctx.fill()
-    // hp dots (cap at 10 for display)
+    const flashing = e.flash > 0
+    if (flashing) e.flash--
+    drawEnemy(e, el, et, ts, flashing)
+    // hp dots (cap at 10)
+    const pad = ts * 0.15
     const dispHp = Math.min(e.hp, 10)
     const dotR = ts * 0.07
     const totalW = dispHp * dotR * 2 + (dispHp - 1) * dotR
@@ -127,10 +250,15 @@ function render() {
 
   // player (lerped position)
   const pcx = ox + renderX * ts + ts / 2; const pcy = oy + renderY * ts + ts / 2
-  ctx.fillStyle = playerFlash > 0 ? '#f44336' : '#fff'
-  ctx.beginPath(); ctx.arc(pcx, pcy, ts / 2 - 4, 0, Math.PI * 2); ctx.fill()
-  ctx.fillStyle = playerFlash > 0 ? '#ffeb3b' : '#c83232'
-  ctx.beginPath(); ctx.arc(pcx, pcy, ts / 2 - ts / 5, 0, Math.PI * 2); ctx.fill()
+  drawPlayer(pcx, pcy, ts)
+  // spin ring
+  if (spinAnim > 0) {
+    const prog = 1 - spinAnim / 12
+    ctx.strokeStyle = `rgba(255,220,60,${spinAnim / 12})`
+    ctx.lineWidth = ts * 0.12
+    ctx.beginPath(); ctx.arc(pcx, pcy, ts * 0.6 + prog * ts * 0.5, 0, Math.PI * 2); ctx.stroke()
+    spinAnim--
+  }
 
   // mini-map — top-right corner of game area
   const mm = 3
@@ -155,7 +283,7 @@ function render() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
   ctx.font = '14px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]`, 8, 58)
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 58)
 
   // THROW button in HUD (unlocks at level 3)
   if (g.level >= 3) {
@@ -167,6 +295,28 @@ function render() {
     ctx.fillText(throwMode ? 'THROW!' : 'THROW', tbx + tbw / 2, tby + 17)
     ctx.font = '11px monospace'
     ctx.fillText(throwMode ? 'tap dir' : (g.throwReady ? 'ready' : 'wait'), tbx + tbw / 2, tby + 33)
+  }
+  // SPIN button (unlocks at floor 3 / spear)
+  if (g.weapon !== 'sword') {
+    const sbx = W - 160; const sby = 6; const sbw = 72; const sbh = 44
+    const spinReady = g.spinCooldown === 0
+    ctx.fillStyle = spinReady ? '#6a1b9a' : '#424242'
+    roundRect(sbx, sby, sbw, sbh, 8); ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center'
+    ctx.fillText('SPIN', sbx + sbw / 2, sby + 17)
+    ctx.font = '11px monospace'
+    ctx.fillText(spinReady ? 'ready' : `${g.spinCooldown}`, sbx + sbw / 2, sby + 33)
+  }
+  // zone name card
+  if (zoneNameAlpha > 0) {
+    ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)
+    const zoneName = ZONES[getZone(g.floor)].name
+    ctx.fillStyle = '#000'
+    ctx.fillRect(ox + ts, oy + r.h * ts / 2 - ts, r.w * ts - ts * 2, ts * 2)
+    ctx.fillStyle = '#ffd700'; ctx.font = `bold ${Math.floor(ts * 0.55)}px monospace`; ctx.textAlign = 'center'
+    ctx.fillText(zoneName, ox + r.w * ts / 2, oy + r.h * ts / 2 + ts * 0.2)
+    ctx.globalAlpha = 1
+    zoneNameAlpha--
   }
 
   // combo overlay
@@ -233,6 +383,7 @@ function roundRect(x, y, w, h, r) {
 // ── Game loop ─────────────────────────────────────────────────────────────────
 
 function loop() {
+  frame++
   if (playerFlash > 0) playerFlash--
 
   // floor-transition trigger
@@ -240,7 +391,13 @@ function loop() {
     transitionAlpha = 1.0
     renderX = g.px; renderY = g.py   // snap on floor change
     prevFloor = g.floor
+    const z = getZone(g.floor)
+    if (z !== prevZone) { zoneNameAlpha = 90; prevZone = z }
   }
+
+  // walk bob
+  const moving = Math.abs(g.px - renderX) + Math.abs(g.py - renderY) > 0.05
+  if (moving) walkPhase += 0.35
 
   // lerp player render position
   renderX += (g.px - renderX) * 0.35
@@ -268,8 +425,15 @@ function onInput(ev) {
     bestFloor = Math.max(bestFloor, g.floor)
     localStorage.setItem('best', bestFloor)
     g = new Game(); playerFlash = 0; throwMode = false
+    walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
     renderX = g.px; renderY = g.py; prevFloor = 1
     resize()
+    return
+  }
+
+  // SPIN button tap
+  if (g.weapon !== 'sword' && cy < HUD_H && cx > canvas.width - 160 && cx < canvas.width - 80) {
+    if (g.spinCooldown === 0) { g.spin(); spinAnim = 12; beep(440, 100) }
     return
   }
 
@@ -296,6 +460,7 @@ function onInput(ev) {
     return
   }
 
+  if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
   g.move(mdx, mdy)
   if      (g.level  > beforeLevel) beep(1320, 200)
   else if (g.kills  > beforeKills) beep(880,  80)
@@ -305,7 +470,7 @@ function onInput(ev) {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('resize', () => { resize(); render() })
-renderX = g.px; renderY = g.py; prevFloor = g.floor
+renderX = g.px; renderY = g.py; prevFloor = g.floor; prevZone = getZone(g.floor)
 resize()
 loop()
 </script>
