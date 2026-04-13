@@ -300,11 +300,11 @@ test('archer does not attack when out of range', () => {
 test('archer backs away when player is adjacent', () => {
   const g = new Game()
   g.room.enemies.length = 0
-  const a = new Enemy(5, 3, 3, 1, false, 'archer')
+  const a = new Enemy(5, 4, 3, 1, false, 'archer')
   g.room.enemies.push(a)
-  for (let x = 1; x < 11; x++) g.room.tiles[3][x] = T.GRASS
+  for (let y = 2; y < 8; y++) for (let x = 3; x < 9; x++) g.room.tiles[y][x] = T.GRASS
   g.px = 4; g.py = 3
-  g.invincible = 100
-  g.move(1, 0) // bumps enemy — player stays at 4. On enemy turn, archer at 5 with player at 4 (dist=1), backs to 6
-  expect(a.x).toBeGreaterThan(5)
+  // player moves to (5,3) — no enemy there; archer at (5,4) is dist=1 from player → backs to (5,5)
+  g.move(1, 0)
+  expect(a.y).toBeGreaterThan(4)
 })

@@ -24,10 +24,11 @@ function makeRng(seed) {
 // ── Data classes ──────────────────────────────────────────────────────────────
 
 class Enemy {
-  constructor(x, y, hp = 3, dmg = 1, isBoss = false) {
+  constructor(x, y, hp = 3, dmg = 1, isBoss = false, type = 'grunt') {
     this.x = x; this.y = y
     this.hp = hp; this.dmg = dmg
     this.flash = 0; this.isBoss = isBoss
+    this.type = type
   }
 }
 
@@ -104,6 +105,13 @@ class Game {
   }
 
   _moveEnemy(e) {
+    if (e.type === 'blocker')  return this._moveBlocker(e)
+    if (e.type === 'wanderer') return this._moveWanderer(e)
+    if (e.type === 'archer')   return this._moveArcher(e)
+    this._chasePlayer(e)
+  }
+
+  _chasePlayer(e) {
     const r = this.room
     const ex = e.x + Math.sign(this.px - e.x)
     const ey = e.y + Math.sign(this.py - e.y)
@@ -112,6 +120,42 @@ class Game {
       this.invincible = 4
     } else if (PASS_ENEMY[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
       e.x = ex; e.y = ey
+    }
+  }
+
+  _moveBlocker(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist <= 1) {
+      this.hp = Math.max(this.hp - e.dmg, 0)
+      this.invincible = 4
+    }
+  }
+
+  _moveWanderer(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist <= 3) { this._chasePlayer(e); return }
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]]
+    const [dx, dy] = dirs[this._rng.nextInt(0, 4)]
+    const nx = e.x + dx; const ny = e.y + dy
+    const r = this.room
+    if (PASS_ENEMY[r.tiles[ny]?.[nx]] && !r.enemies.some(o => o !== e && o.x === nx && o.y === ny))
+      { e.x = nx; e.y = ny }
+  }
+
+  _moveArcher(e) {
+    const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
+    if (dist > 3) { this._chasePlayer(e); return }
+    if (dist <= 3) {
+      this.hp = Math.max(this.hp - e.dmg, 0)
+      this.invincible = 4
+    }
+    if (dist < 2) {
+      // back away
+      const r = this.room
+      const ex = e.x - Math.sign(this.px - e.x)
+      const ey = e.y - Math.sign(this.py - e.y)
+      if (PASS_ENEMY[r.tiles[ey]?.[ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey))
+        { e.x = ex; e.y = ey }
     }
   }
 
@@ -160,9 +204,13 @@ class Game {
     } else {
       const n = Math.min(f + 1, 6)
       for (let i = 0; i < n; i++) {
-        const e = (f >= 5 && rng.nextInt(0, 4) === 0)
-          ? new Enemy(0, 0, 6, 2)
-          : new Enemy(0, 0, 3, 1)
+        let e
+        if (f >= 5 && rng.nextInt(0, 4) === 0) e = new Enemy(0, 0, 6, 2)
+        else if (f >= 3) {
+          const t = rng.nextInt(0, 3)
+          const type = t === 0 ? 'archer' : t === 1 ? 'wanderer' : 'blocker'
+          e = new Enemy(0, 0, 3, 1, false, type)
+        } else e = new Enemy(0, 0, 3, 1)
         this._spawnEnemy(r, e)
       }
     }
