@@ -110,7 +110,7 @@ class Game {
     const r = this.room
     for (const [ddx, ddy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]) {
       const e = r.enemies.find(o => o.x === this.px + ddx && o.y === this.py + ddy)
-      if (e) this._hitEnemy(e, this.attack, 'stunned', 1)
+      if (e) this._hitEnemy(e, this.attack, 'stunned', 1, ddx, ddy)
     }
     this.spinCooldown = 5
   }
@@ -122,19 +122,32 @@ class Game {
     let cx = this.px + dx; let cy = this.py + dy
     while (cx >= 0 && cx < r.w && cy >= 0 && cy < r.h) {
       const e = r.enemies.find(o => o.x === cx && o.y === cy)
-      if (e) { this._hitEnemy(e, this.attack, 'poisoned', 3); break }
+      if (e) { this._hitEnemy(e, this.attack, 'poisoned', 3, dx, dy); break }
       if (!PASS[r.tiles[cy][cx]]) break
       cx += dx; cy += dy
     }
   }
 
-  _hitEnemy(e, dmg, status, statusTurns) {
-    e.hp -= dmg; e.flash = 8
+  _hitEnemy(e, dmg, status, statusTurns, dx = 0, dy = 0) {
+    const effectiveDmg = dmg + Math.floor(this.combo / 3)
+    e.hp -= effectiveDmg; e.flash = 8
     if (status && !e.status) { e.status = status; e.statusTurns = statusTurns }
     if (e.hp <= 0) {
       this.room.enemies.splice(this.room.enemies.indexOf(e), 1)
       this._onEnemyKilled(e, e.x, e.y)
+    } else if (dx !== 0 || dy !== 0) {
+      this._knockback(e, dx, dy)
     }
+  }
+
+  _knockback(e, dx, dy) {
+    const nx = e.x + dx; const ny = e.y + dy
+    const r = this.room
+    if (nx < 0 || nx >= r.w || ny < 0 || ny >= r.h) return
+    if (!PASS_ENEMY[r.tiles[ny][nx]]) return
+    if (r.enemies.some(o => o !== e && o.x === nx && o.y === ny)) return
+    if (nx === this.px && ny === this.py) return
+    e.x = nx; e.y = ny
   }
 
   _doAttack(nx, ny, dx, dy) {
@@ -142,7 +155,7 @@ class Game {
     if (this.weapon === 'spear') {
       const nx2 = nx + dx; const ny2 = ny + dy
       for (const e of r.enemies.filter(e => (e.x===nx&&e.y===ny)||(e.x===nx2&&e.y===ny2)).slice())
-        this._hitEnemy(e, this.attack, 'frozen', 2)
+        this._hitEnemy(e, this.attack, 'frozen', 2, dx, dy)
       return
     }
     if (this.weapon === 'axe') {
@@ -150,13 +163,13 @@ class Game {
       const perp = dx !== 0 ? [[nx, ny-1],[nx, ny],[nx, ny+1]] : [[nx-1, ny],[nx, ny],[nx+1, ny]]
       for (const [ex, ey] of perp) {
         const e = r.enemies.find(o => o.x===ex && o.y===ey)
-        if (e) this._hitEnemy(e, dmg, 'stunned', 1)
+        if (e) this._hitEnemy(e, dmg, 'stunned', 1, dx, dy)
       }
       return
     }
     // sword (default)
     const hit = r.enemies.find(e => e.x===nx && e.y===ny)
-    if (hit) this._hitEnemy(hit, this.attack, null, 0)
+    if (hit) this._hitEnemy(hit, this.attack, null, 0, dx, dy)
   }
 
   _takeDamage(dmg) {
