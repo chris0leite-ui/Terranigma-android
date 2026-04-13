@@ -523,3 +523,101 @@ test('combo resets on taking damage', () => {
   g.move(1, 0)
   expect(g.combo).toBe(0)
 })
+
+// ── Round 9: Spin attack ───────────────────────────────────────────────────────
+
+test('spin hits all 8 adjacent enemies', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]
+  const enemies = dirs.map(([ddx,ddy]) => {
+    const e = new Enemy(5+ddx, 5+ddy, 3, 1)
+    g.room.tiles[5+ddy][5+ddx] = T.GRASS
+    g.room.enemies.push(e)
+    return e
+  })
+  g.px = 5; g.py = 5
+  g.spin()
+  expect(enemies.every(e => e.hp < 3)).toBe(true)
+})
+
+test('spin does not hit enemies 2+ tiles away', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const far = new Enemy(8, 5, 3, 1)
+  g.room.enemies.push(far)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.spin()
+  expect(far.hp).toBe(3)
+})
+
+test('spin has cooldown after use', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 5
+  g.spin()
+  expect(g.spinCooldown).toBeGreaterThan(0)
+})
+
+test('spin blocked during cooldown', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 3, 1)
+  g.room.tiles[5][6] = T.GRASS
+  g.room.enemies.push(e)
+  g.px = 5; g.py = 5
+  g.spin()
+  const hpAfterFirst = e.hp
+  g.spin()
+  expect(e.hp).toBe(hpAfterFirst)
+})
+
+test('spinCooldown decrements on move', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.spin()
+  const before = g.spinCooldown
+  g.move(1, 0)
+  expect(g.spinCooldown).toBe(before - 1)
+})
+
+// ── Round 10: Soul liberation ─────────────────────────────────────────────────
+
+test('soulsFreed starts at 0', () => {
+  expect(new Game().soulsFreed).toBe(0)
+})
+
+test('soulsFreed increments on each kill', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5
+  g.move(1, 0)
+  expect(g.soulsFreed).toBe(1)
+})
+
+test('room.cleared set true when last enemy killed', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5
+  g.move(1, 0)
+  expect(g.room.cleared).toBe(true)
+})
+
+test('room.cleared false while enemies remain', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(6, g.py, 1), new Enemy(7, g.py, 3))
+  g.room.tiles[g.py][6] = T.GRASS; g.room.tiles[g.py][7] = T.GRASS
+  g.px = 5
+  g.move(1, 0)
+  expect(g.room.cleared).toBe(false)
+})
