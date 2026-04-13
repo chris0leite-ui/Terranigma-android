@@ -479,6 +479,7 @@ test('throwReady recharges after move', () => {
   const g = new Game()
   g.level = 3; g.throwReady = false
   g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
   g.px = 5; g.py = 5
   g.move(1, 0)
   expect(g.throwReady).toBe(true)

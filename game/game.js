@@ -55,6 +55,7 @@ class Game {
     this.invincible = 0; this.kills = 0
     this.weapon = 'sword'
     this.throwReady = true
+    this.combo = 0; this.comboFlash = 0
     this.room = this.generateFloor(this.floor)
     this.px = this.room.spawnX; this.py = this.room.spawnY
   }
@@ -148,6 +149,7 @@ class Game {
   _takeDamage(dmg) {
     this.hp = Math.max(this.hp - dmg, 0)
     this.invincible = 4
+    this.combo = 0; this.comboFlash = 0
   }
 
   _moveEnemy(e) {
@@ -171,8 +173,7 @@ class Game {
     const ex = e.x + Math.sign(this.px - e.x)
     const ey = e.y + Math.sign(this.py - e.y)
     if (ex === this.px && ey === this.py) {
-      this.hp = Math.max(this.hp - e.dmg, 0)
-      this.invincible = 4
+      this._takeDamage(e.dmg)
     } else if (PASS_ENEMY[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey)) {
       e.x = ex; e.y = ey
     }
@@ -180,10 +181,7 @@ class Game {
 
   _moveBlocker(e) {
     const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
-    if (dist <= 1) {
-      this.hp = Math.max(this.hp - e.dmg, 0)
-      this.invincible = 4
-    }
+    if (dist <= 1) this._takeDamage(e.dmg)
   }
 
   _moveWanderer(e) {
@@ -200,10 +198,7 @@ class Game {
   _moveArcher(e) {
     const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
     if (dist > 3) { this._chasePlayer(e); return }
-    if (dist <= 3) {
-      this.hp = Math.max(this.hp - e.dmg, 0)
-      this.invincible = 4
-    }
+    if (dist <= 3) this._takeDamage(e.dmg)
     if (dist < 2) {
       // back away
       const r = this.room
@@ -216,6 +211,7 @@ class Game {
 
   _onEnemyKilled(e, x, y) {
     this.kills++
+    this.combo++; this.comboFlash = 60
     if (e.isBoss) this.room.tiles[y][x] = T.CHEST
     this.xp++
     if (this.xp >= this.xpToNext) this._levelUp()
