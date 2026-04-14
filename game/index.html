@@ -130,7 +130,8 @@ function tileColor(type) {
 }
 
 const ENEMY_BASE = {
-  grunt: '#c800b4', archer: '#00bcd4', wanderer: '#ff9800', blocker: '#795548'
+  grunt: '#c800b4', archer: '#00bcd4', wanderer: '#ff9800', blocker: '#795548',
+  shielder: '#5c6bc0', splitter: '#ff4444', charger: '#ff6f00', healer: '#2e7d32'
 }
 const STATUS_TINT = {
   poisoned: 'rgba(0,200,0,0.45)', stunned: 'rgba(255,220,0,0.45)', frozen: 'rgba(80,160,255,0.45)'
@@ -220,6 +221,55 @@ function drawEnemy(e, el, et, ts, flashing) {
     ctx.arc(cx + sdx * ts * 0.28, cy + sdy * ts * 0.28, ts * 0.22,
       Math.atan2(sdy, sdx) - Math.PI * 0.6, Math.atan2(sdy, sdx) + Math.PI * 0.6)
     ctx.lineTo(cx + sdx * ts * 0.28, cy + sdy * ts * 0.28); ctx.closePath(); ctx.fill()
+  } else if (type === 'shielder') {
+    // rounded body
+    ctx.fillStyle = baseColor
+    ctx.beginPath(); ctx.arc(cx, cy, ts * 0.36, 0, Math.PI * 2); ctx.fill()
+    // shield arc on facing side
+    const sd = e.shieldDir || { dx: 0, dy: -1 }
+    const sa = Math.atan2(sd.dy, sd.dx)
+    ctx.fillStyle = flashing ? '#fff' : '#9fa8da'
+    ctx.strokeStyle = flashing ? '#fff' : '#3949ab'
+    ctx.lineWidth = ts * 0.06
+    ctx.beginPath()
+    ctx.arc(cx + sd.dx * ts * 0.3, cy + sd.dy * ts * 0.3, ts * 0.24, sa - Math.PI * 0.65, sa + Math.PI * 0.65)
+    ctx.lineTo(cx + sd.dx * ts * 0.3, cy + sd.dy * ts * 0.3); ctx.closePath()
+    ctx.fill(); ctx.stroke()
+  } else if (type === 'splitter') {
+    const isMini = e.size === 'mini'
+    const r2 = isMini ? ts * 0.22 : ts * 0.38
+    ctx.fillStyle = baseColor
+    ctx.beginPath(); ctx.arc(cx, cy, r2, 0, Math.PI * 2); ctx.fill()
+    if (!isMini) {
+      // split line showing it will divide
+      ctx.strokeStyle = flashing ? '#fff' : '#ff8a80'
+      ctx.lineWidth = ts * 0.05
+      ctx.beginPath(); ctx.moveTo(cx, cy - r2 * 0.7); ctx.lineTo(cx, cy + r2 * 0.7); ctx.stroke()
+    }
+  } else if (type === 'charger') {
+    // triangle/wedge body pointing toward player
+    const cdx = Math.sign(g.px - e.x) || 1; const cdy = Math.sign(g.py - e.y) || 0
+    ctx.fillStyle = baseColor
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.atan2(cdy, cdx))
+    ctx.beginPath()
+    ctx.moveTo(ts * 0.42, 0)
+    ctx.lineTo(-ts * 0.32, -ts * 0.3)
+    ctx.lineTo(-ts * 0.32, ts * 0.3)
+    ctx.closePath(); ctx.fill()
+    // cooldown indicator — small dot when ready
+    if (e.chargeCooldown === 0) {
+      ctx.fillStyle = '#ffeb3b'
+      ctx.beginPath(); ctx.arc(0, 0, ts * 0.1, 0, Math.PI * 2); ctx.fill()
+    }
+    ctx.restore()
+  } else if (type === 'healer') {
+    // cross / plus shape
+    ctx.fillStyle = baseColor
+    ctx.fillRect(el + ts * 0.3, et + pad, ts * 0.4, ts - pad * 2)
+    ctx.fillRect(el + pad, et + ts * 0.3, ts - pad * 2, ts * 0.4)
+    // glow when healing
+    ctx.fillStyle = flashing ? '#fff' : 'rgba(129,199,132,0.6)'
+    ctx.beginPath(); ctx.arc(cx, cy, ts * 0.18, 0, Math.PI * 2); ctx.fill()
   } else if (type === 'boss') {
     const pulse = 1 + Math.sin(frame * 0.1) * 0.06
     ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse)
@@ -268,6 +318,9 @@ function render() {
   for (const ev of (g.events || [])) {
     if (ev.type === 'dmg' || ev.type === 'heal') {
       dmgNumbers.push({ tx: ev.x + 0.5, ty: ev.y, val: ev.type === 'heal' ? `+${ev.val}` : `${ev.val}`, life: 40, max: 40, who: ev.type === 'heal' ? 'heal' : ev.who })
+    }
+    if (ev.type === 'blocked') {
+      dmgNumbers.push({ tx: ev.x + 0.5, ty: ev.y, val: 'BLOCK', life: 35, max: 35, who: 'blocked' })
     }
     if (ev.type === 'locked') lockedFlash = 90
   }
@@ -447,7 +500,7 @@ function render() {
     const ny2 = oy + n.ty * ts - progress * ts * 1.6
     ctx.globalAlpha = n.life / n.max
     ctx.font = `bold ${Math.floor(ts * 0.38)}px monospace`; ctx.textAlign = 'center'
-    ctx.fillStyle = n.who === 'player' ? '#ff5252' : n.who === 'heal' ? '#69f0ae' : '#fff'
+    ctx.fillStyle = n.who === 'player' ? '#ff5252' : n.who === 'heal' ? '#69f0ae' : n.who === 'blocked' ? '#9fa8da' : '#fff'
     ctx.fillText(n.val, nx2, ny2)
     ctx.globalAlpha = 1
     n.life--
@@ -706,7 +759,8 @@ function onInput(ev) {
   if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
   const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
   g.move(mdx, mdy)
-  if      (g.events.some(ev => ev.type === 'locked')) beep(110, 80)
+  if      (g.events.some(ev => ev.type === 'locked'))  beep(110, 80)
+  else if (g.events.some(ev => ev.type === 'blocked')) beep(440, 60)
   else if (g.level > beforeLevel) beep(1320, 200)
   else if (g.kills > beforeKills) beep(880, 80)
   else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }

@@ -36,10 +36,14 @@ function makeRng(seed) {
 class Enemy {
   constructor(x, y, hp = 3, dmg = 1, isBoss = false, type = 'grunt') {
     this.x = x; this.y = y
-    this.hp = hp; this.dmg = dmg
+    this.hp = hp; this.maxHp = hp; this.dmg = dmg
     this.flash = 0; this.isBoss = isBoss
     this.type = type
     this.status = null; this.statusTurns = 0
+    // type-specific fields
+    this.shieldDir = null       // shielder: {dx,dy} facing direction
+    this.size = null            // splitter: 'big'|'mini'
+    this.chargeCooldown = 0     // charger: turns until next charge
   }
 }
 
@@ -193,6 +197,10 @@ class Game {
   }
 
   _hitEnemy(e, dmg, status, statusTurns, dx = 0, dy = 0) {
+    if (e.type === 'shielder' && e.shieldDir &&
+        dx === -e.shieldDir.dx && dy === -e.shieldDir.dy) {
+      this.events.push({ type: 'blocked', x: e.x, y: e.y }); return
+    }
     const effectiveDmg = dmg + Math.floor(this.combo / 3)
     e.hp -= effectiveDmg; e.flash = 8
     this.events.push({ type: 'dmg', x: e.x, y: e.y, val: -effectiveDmg, who: 'enemy' })
@@ -257,6 +265,10 @@ class Game {
     if (e.type === 'blocker')  return this._moveBlocker(e)
     if (e.type === 'wanderer') return this._moveWanderer(e)
     if (e.type === 'archer')   return this._moveArcher(e)
+    if (e.type === 'shielder') return this._moveShielder(e)
+    if (e.type === 'splitter') return this._moveSplitter(e)
+    if (e.type === 'charger')  return this._moveCharger(e)
+    if (e.type === 'healer')   return this._moveHealer(e)
     this._chasePlayer(e)
   }
 
@@ -300,11 +312,71 @@ class Game {
     }
   }
 
+  _moveShielder(e) {
+    // Update shield to face player each turn
+    const sdx = Math.sign(this.px - e.x); const sdy = Math.sign(this.py - e.y)
+    if (sdx !== 0 && sdy === 0) e.shieldDir = { dx: sdx, dy: 0 }
+    else if (sdy !== 0 && sdx === 0) e.shieldDir = { dx: 0, dy: sdy }
+    else e.shieldDir = { dx: sdx, dy: 0 } // diagonal: prefer horizontal
+    this._chasePlayer(e)
+  }
+
+  _moveSplitter(e) {
+    if (e.size === 'mini') { this._moveWanderer(e); return }
+    this._chasePlayer(e)
+  }
+
+  _moveCharger(e) {
+    if (e.chargeCooldown > 0) { e.chargeCooldown--; return }
+    // Check alignment: same row or column within 5 tiles
+    const aligned = (e.y === this.py && Math.abs(this.px - e.x) <= 5) ||
+                    (e.x === this.px && Math.abs(this.py - e.y) <= 5)
+    if (!aligned) { this._moveWanderer(e); return }
+    // Charge: move up to 3 tiles toward player
+    const dx = Math.sign(this.px - e.x); const dy = Math.sign(this.py - e.y)
+    const r = this.room
+    let charged = false
+    for (let step = 0; step < 3; step++) {
+      const nx = e.x + dx; const ny = e.y + dy
+      if (nx === this.px && ny === this.py) { this._takeDamage(e.dmg + 1); charged = true; break }
+      if (!PASS_ENEMY[r.tiles[ny]?.[nx]]) break
+      if (r.enemies.some(o => o !== e && o.x === nx && o.y === ny)) break
+      e.x = nx; e.y = ny; charged = true
+    }
+    if (charged) e.chargeCooldown = 3
+  }
+
+  _moveHealer(e) {
+    // Find nearest injured ally within 3 tiles
+    const ally = this.room.enemies
+      .filter(o => o !== e && o.hp < o.maxHp &&
+                   Math.abs(o.x - e.x) + Math.abs(o.y - e.y) <= 3)
+      .sort((a, b) => (Math.abs(a.x-e.x)+Math.abs(a.y-e.y)) - (Math.abs(b.x-e.x)+Math.abs(b.y-e.y)))[0]
+    if (ally) { ally.hp = Math.min(ally.hp + 1, ally.maxHp); return }
+    this._moveWanderer(e)
+  }
+
   _onEnemyKilled(e, x, y) {
     this.kills++
     this.soulsFreed++
     this.combo++; this.comboFlash = 60
     if (e.isBoss) this.room.tiles[y][x] = T.HEART_CONTAINER
+    if (e.type === 'splitter' && e.size === 'big') {
+      const offsets = [[1,0],[-1,0],[0,1],[0,-1]]
+      let spawned = 0
+      for (const [ox, oy] of offsets) {
+        if (spawned >= 2) break
+        const mx = x + ox; const my = y + oy
+        if (mx < 0 || mx >= this.room.w || my < 0 || my >= this.room.h) continue
+        if (!PASS_ENEMY[this.room.tiles[my][mx]]) continue
+        if (this.room.enemies.some(o => o.x === mx && o.y === my)) continue
+        if (mx === this.px && my === this.py) continue
+        const mini = new Enemy(mx, my, 1, 1, false, 'splitter')
+        mini.size = 'mini'
+        this.room.enemies.push(mini)
+        spawned++
+      }
+    }
     if (this.room.enemies.length === 0) {
       this.room.cleared = true
       const healed = Math.min(2, this.maxHp - this.hp)
@@ -371,8 +443,18 @@ class Game {
       const n = Math.min(f + 1, 6)
       for (let i = 0; i < n; i++) {
         let e
-        if (f >= 5 && rng.nextInt(0, 4) === 0) e = new Enemy(0, 0, 6, 2)
-        else if (f >= 3) {
+        if (f >= 8 && rng.nextInt(0, 20) < 3) {
+          e = new Enemy(0, 0, 3, 0, false, 'healer'); e.maxHp = 3
+        } else if (f >= 6 && rng.nextInt(0, 5) === 0) {
+          e = new Enemy(0, 0, 5, 1, false, 'splitter'); e.size = 'big'
+        } else if (f >= 5 && rng.nextInt(0, 4) === 0) {
+          e = new Enemy(0, 0, 6, 2)
+        } else if (f >= 4 && rng.nextInt(0, 5) === 0) {
+          e = new Enemy(0, 0, 4, 1, false, 'shielder')
+          e.shieldDir = { dx: 0, dy: -1 } // initial facing (updated each turn)
+        } else if (f >= 2 && rng.nextInt(0, 4) === 0) {
+          e = new Enemy(0, 0, 3, 1, false, 'charger')
+        } else if (f >= 3) {
           const t = rng.nextInt(0, 3)
           const type = t === 0 ? 'archer' : t === 1 ? 'wanderer' : 'blocker'
           e = new Enemy(0, 0, 3, 1, false, type)
