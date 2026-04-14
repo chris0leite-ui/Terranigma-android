@@ -739,13 +739,13 @@ test('_hitEnemy pushes enemy dmg event', () => {
 
 // ── Round 15: Extended invincibility ─────────────────────────────────────────
 
-test('invincibility lasts 12 frames after damage', () => {
+test('invincibility lasts 6 frames after damage', () => {
   const g = new Game()
   g.room.enemies.length = 0; g.room.enemies.push(new Enemy(5, 3))
   g.room.tiles[3][4] = T.GRASS
   g.px = 3; g.py = 3
   g.move(1, 0)
-  expect(g.invincible).toBe(12)
+  expect(g.invincible).toBe(6)
 })
 
 // ── Round 16: Room clear heal ─────────────────────────────────────────────────

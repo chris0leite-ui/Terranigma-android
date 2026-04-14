@@ -394,7 +394,7 @@ function render() {
   const mmY = oy + 2
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(mmX - 1, mmY - 1, r.w * mm + 2, r.h * mm + 2)
   for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
-    ctx.fillStyle = TILE_COLOR[r.tiles[y][x]]
+    ctx.fillStyle = tileColor(r.tiles[y][x])
     ctx.fillRect(mmX + x * mm, mmY + y * mm, mm, mm)
   }
   for (const e of r.enemies) {
@@ -411,7 +411,8 @@ function render() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
   ctx.font = '13px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]${g.hasKey ? '  KEY✓' : ''}  SOULS:${g.soulsFreed}`, 8, 52)
+  const keyHint = g.hasKey ? '  KEY✓' : (frame % 60 < 30 ? '  KEY?' : '  ----')
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]${keyHint}  SOULS:${g.soulsFreed}`, 8, 52)
   // zone name card
   if (zoneNameAlpha > 0) {
     ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)

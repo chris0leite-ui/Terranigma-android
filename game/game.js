@@ -239,7 +239,7 @@ class Game {
 
   _takeDamage(dmg) {
     this.hp = Math.max(this.hp - dmg, 0)
-    this.invincible = 12
+    this.invincible = 6
     this.combo = 0; this.comboFlash = 0
     this.events.push({ type: 'dmg', x: this.px, y: this.py, val: -dmg, who: 'player' })
   }
