@@ -66,6 +66,8 @@ let frame = 0                   // global frame counter for enemy animations
 let zoneNameAlpha = 0           // zone-name card fade
 let prevZone = -1
 let shakeFrames = 0             // screen shake countdown
+let dmgNumbers = []             // floating damage/heal text {tx,ty,val,life,max,who}
+let lockedFlash = 0             // "Need a key!" timer
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -114,12 +116,14 @@ const ZONES = [
 function getZone(f) { return Math.min(Math.floor((f - 1) / 5), 3) }
 
 const TILE_COLOR = {
-  DOOR: '#ff8f00', CHEST: '#ffd700'
+  DOOR: '#ff8f00', CHEST: '#ffd700',
+  KEY: '#ffe082', HEART_CONTAINER: '#ef5350',
+  WEAPON_SPEAR: '#4dd0e1', WEAPON_AXE: '#ff8a65'
 }
 function tileColor(type) {
   if (TILE_COLOR[type]) return TILE_COLOR[type]
   const z = ZONES[getZone(g.floor)]
-  if (type === 'GRASS') return z.grass
+  if (type === 'GRASS' || type === 'GRASS_TALL') return z.grass
   if (type === 'WALL')  return z.wall
   if (type === 'WATER') return z.water
   return '#000'
@@ -135,6 +139,7 @@ const STATUS_TINT = {
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 
 function drawPlayer(pcx, pcy, ts) {
+  if (g.invincible > 0 && g.invincible % 4 < 2) return
   const s = ts * 0.38
   const hurt = playerFlash > 0
   const bob = Math.sin(walkPhase) * s * 0.18
@@ -259,14 +264,88 @@ function render() {
   const ox = Math.floor((W - r.w * ts) / 2)
   const oy = HUD_H
 
+  // drain game events
+  for (const ev of g.events) {
+    if (ev.type === 'dmg' || ev.type === 'heal') {
+      dmgNumbers.push({ tx: ev.x + 0.5, ty: ev.y, val: ev.type === 'heal' ? `+${ev.val}` : `${ev.val}`, life: 40, max: 40, who: ev.type === 'heal' ? 'heal' : ev.who })
+    }
+    if (ev.type === 'locked') lockedFlash = 90
+  }
+  g.events.length = 0
+
   // tiles
   for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
     const px = ox + x * ts; const py = oy + y * ts
-    ctx.fillStyle = tileColor(r.tiles[y][x])
+    const tile = r.tiles[y][x]
+    ctx.fillStyle = tileColor(tile)
     ctx.fillRect(px, py, ts, ts)
     ctx.fillStyle = 'rgba(0,0,0,0.2)'
     ctx.fillRect(px, py, ts, ts)
+    const cx2 = px + ts / 2, cy2 = py + ts / 2
+    // tall grass blades
+    if (tile === T.GRASS_TALL) {
+      ctx.fillStyle = 'rgba(0,60,0,0.7)'
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath()
+        ctx.moveTo(cx2 + i*ts*0.18 - ts*0.06, cy2 + ts*0.3)
+        ctx.lineTo(cx2 + i*ts*0.18, cy2 - ts*0.2)
+        ctx.lineTo(cx2 + i*ts*0.18 + ts*0.06, cy2 + ts*0.3)
+        ctx.fill()
+      }
+    }
+    // key icon
+    if (tile === T.KEY) {
+      ctx.fillStyle = '#ffe082'
+      ctx.beginPath(); ctx.arc(cx2, cy2 - ts*0.1, ts*0.2, 0, Math.PI*2); ctx.fill()
+      ctx.fillStyle = ZONES[getZone(g.floor)].grass
+      ctx.beginPath(); ctx.arc(cx2, cy2 - ts*0.1, ts*0.1, 0, Math.PI*2); ctx.fill()
+      ctx.strokeStyle = '#ffe082'; ctx.lineWidth = ts*0.08; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(cx2, cy2+ts*0.1); ctx.lineTo(cx2, cy2+ts*0.35); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(cx2, cy2+ts*0.22); ctx.lineTo(cx2+ts*0.13, cy2+ts*0.22); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(cx2, cy2+ts*0.33); ctx.lineTo(cx2+ts*0.13, cy2+ts*0.33); ctx.stroke()
+    }
+    // heart container
+    if (tile === T.HEART_CONTAINER) {
+      ctx.fillStyle = '#ef5350'
+      ctx.beginPath()
+      ctx.moveTo(cx2, cy2 + ts*0.22)
+      ctx.bezierCurveTo(cx2-ts*0.38, cy2-ts*0.04, cx2-ts*0.38, cy2-ts*0.3, cx2, cy2-ts*0.1)
+      ctx.bezierCurveTo(cx2+ts*0.38, cy2-ts*0.3, cx2+ts*0.38, cy2-ts*0.04, cx2, cy2+ts*0.22)
+      ctx.fill()
+    }
+    // weapon pickups
+    if (tile === T.WEAPON_SPEAR) {
+      ctx.strokeStyle = '#4dd0e1'; ctx.lineWidth = ts*0.09; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(cx2-ts*0.28, cy2+ts*0.28); ctx.lineTo(cx2+ts*0.28, cy2-ts*0.28); ctx.stroke()
+      ctx.fillStyle = '#80deea'
+      ctx.beginPath()
+      ctx.moveTo(cx2+ts*0.28, cy2-ts*0.28)
+      ctx.lineTo(cx2+ts*0.12, cy2-ts*0.28)
+      ctx.lineTo(cx2+ts*0.28, cy2-ts*0.12)
+      ctx.fill()
+    }
+    if (tile === T.WEAPON_AXE) {
+      ctx.strokeStyle = '#ff8a65'; ctx.lineWidth = ts*0.08; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(cx2-ts*0.2, cy2+ts*0.2); ctx.lineTo(cx2+ts*0.1, cy2-ts*0.1); ctx.stroke()
+      ctx.fillStyle = '#ff7043'
+      ctx.beginPath(); ctx.arc(cx2+ts*0.16, cy2-ts*0.16, ts*0.19, Math.PI*0.45, Math.PI*1.85); ctx.lineTo(cx2+ts*0.1, cy2-ts*0.1); ctx.fill()
+    }
+    // locked door tint
+    if (tile === T.DOOR && !g.hasKey) {
+      ctx.fillStyle = 'rgba(180,0,0,0.45)'
+      ctx.fillRect(px, py, ts, ts)
+      ctx.fillStyle = '#f44336'; ctx.font = `bold ${Math.floor(ts*0.45)}px monospace`; ctx.textAlign = 'center'
+      ctx.fillText('X', cx2, cy2 + ts*0.17)
+    }
   }
+
+  // darkness / torch overlay
+  const pcxD = ox + (renderX + 0.5) * ts; const pcyD = oy + (renderY + 0.5) * ts
+  const grad = ctx.createRadialGradient(pcxD, pcyD, ts*1.6, pcxD, pcyD, ts*5.2)
+  grad.addColorStop(0, 'rgba(0,0,0,0)')
+  grad.addColorStop(1, 'rgba(0,0,0,0.80)')
+  ctx.fillStyle = grad
+  ctx.fillRect(ox, oy, r.w*ts, r.h*ts)
 
   // enemies
   for (const e of r.enemies) {
@@ -274,6 +353,12 @@ function render() {
     const flashing = e.flash > 0
     if (flashing) e.flash--
     drawEnemy(e, el, et, ts, flashing)
+    // "!" alert when enemy is tracking player
+    const eDist = Math.abs(g.px - e.x) + Math.abs(g.py - e.y)
+    if (eDist <= 4 && eDist > 1 && !e.status && e.type !== 'blocker') {
+      ctx.fillStyle = '#ff1744'; ctx.font = `bold ${Math.floor(ts*0.38)}px monospace`; ctx.textAlign = 'center'
+      ctx.fillText('!', el + ts/2, et - ts*0.04)
+    }
     // hp dots (cap at 10)
     const pad = ts * 0.15
     const dispHp = Math.min(e.hp, 10)
@@ -326,7 +411,7 @@ function render() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
   ctx.font = '13px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 52)
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]${g.hasKey ? '  KEY✓' : ''}  SOULS:${g.soulsFreed}`, 8, 52)
   // zone name card
   if (zoneNameAlpha > 0) {
     ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)
@@ -351,6 +436,40 @@ function render() {
     ctx.font = `${Math.floor(ts * 0.35)}px monospace`
     ctx.fillText(bonus > 0 ? `COMBO  +${bonus} ATK` : 'COMBO', ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
     ctx.globalAlpha = 1
+  }
+
+  // floating damage / heal numbers
+  for (let i = dmgNumbers.length - 1; i >= 0; i--) {
+    const n = dmgNumbers[i]
+    const progress = 1 - n.life / n.max
+    const nx2 = ox + n.tx * ts
+    const ny2 = oy + n.ty * ts - progress * ts * 1.6
+    ctx.globalAlpha = n.life / n.max
+    ctx.font = `bold ${Math.floor(ts * 0.38)}px monospace`; ctx.textAlign = 'center'
+    ctx.fillStyle = n.who === 'player' ? '#ff5252' : n.who === 'heal' ? '#69f0ae' : '#fff'
+    ctx.fillText(n.val, nx2, ny2)
+    ctx.globalAlpha = 1
+    n.life--
+    if (n.life <= 0) dmgNumbers.splice(i, 1)
+  }
+
+  // "Need a key!" message
+  if (lockedFlash > 0) {
+    ctx.globalAlpha = Math.min(1, lockedFlash / 20)
+    ctx.fillStyle = '#f44336'; ctx.font = `bold ${Math.floor(ts*0.42)}px monospace`; ctx.textAlign = 'center'
+    ctx.fillText('Need a key!', ox + r.w*ts/2, oy + r.h*ts/2)
+    ctx.globalAlpha = 1
+  }
+
+  // weapon choice popup
+  if (g.pendingWeapon) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'
+    ctx.fillRect(ox, oy, r.w*ts, r.h*ts)
+    ctx.textAlign = 'center'
+    ctx.fillStyle = '#ffd700'; ctx.font = `bold ${Math.floor(ts*0.5)}px monospace`
+    ctx.fillText(`Found ${g.pendingWeapon.toUpperCase()}!`, ox+r.w*ts/2, oy+r.h*ts/2-ts*0.55)
+    ctx.fillStyle = '#aaa'; ctx.font = `${Math.floor(ts*0.28)}px monospace`
+    ctx.fillText(`[${g.weapon.toUpperCase()}]  →  A=Equip  B=Keep`, ox+r.w*ts/2, oy+r.h*ts/2+ts*0.05)
   }
 
   // ── Game Boy controls ───────────────────────────────────────────────────────
@@ -489,6 +608,7 @@ function loop() {
   frame++
   if (playerFlash > 0) playerFlash--
   if (shakeFrames > 0) shakeFrames--
+  if (lockedFlash > 0) lockedFlash--
 
   // floor-transition trigger
   if (g.floor !== prevFloor) {
@@ -530,8 +650,16 @@ function onInput(ev) {
     localStorage.setItem('best', bestFloor)
     g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false; weaponFx = []
     walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
+    dmgNumbers = []; lockedFlash = 0
     renderX = g.px; renderY = g.py; prevFloor = 1
     resize(); return
+  }
+
+  // weapon choice popup — A=equip, anything else=keep
+  if (g.pendingWeapon) {
+    if (Math.hypot(cx - aCx, cy - aCy) < btnSize * 0.55) { g.equipWeapon(); beep(1320, 150) }
+    else { g.skipWeapon() }
+    return
   }
 
   // A button — attack in facing direction
@@ -577,7 +705,8 @@ function onInput(ev) {
   if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
   const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
   g.move(mdx, mdy)
-  if      (g.level > beforeLevel) beep(1320, 200)
+  if      (g.events.some(ev => ev.type === 'locked')) beep(110, 80)
+  else if (g.level > beforeLevel) beep(1320, 200)
   else if (g.kills > beforeKills) beep(880, 80)
   else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
 }

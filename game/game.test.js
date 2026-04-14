@@ -112,7 +112,7 @@ test('floor starts at 1', () => {
 test('entering door increments floor', () => {
   const g = new Game()
   g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
-  g.room.enemies.length = 0
+  g.room.enemies.length = 0; g.hasKey = true
   g.move(0, 1)
   expect(g.floor).toBe(2)
 })
@@ -215,14 +215,14 @@ test('boss spawns on floor 5', () => {
   expect(r5.enemies.some(e => e.isBoss)).toBe(true)
 })
 
-test('boss drops chest on death', () => {
+test('boss drops heart container on death', () => {
   const g = new Game()
   const boss = new Enemy(6, 4, 1, 2, true)
   g.room.enemies.length = 0; g.room.enemies.push(boss)
   g.room.tiles[4][6] = T.GRASS
   g.px = 5; g.py = 4
   g.move(1, 0)
-  expect(g.room.tiles[4][6]).toBe(T.CHEST)
+  expect(g.room.tiles[4][6]).toBe(T.HEART_CONTAINER)
 })
 
 test('player attack scales with level', () => {
@@ -710,4 +710,209 @@ test('attackDir does not move player when no enemy present', () => {
   g.attackDir(1, 0)
   expect(g.px).toBe(5)
   expect(g.py).toBe(5)
+})
+
+// ── Round 14: Damage events ───────────────────────────────────────────────────
+
+test('events array exists and starts empty', () => {
+  expect(new Game().events).toEqual([])
+})
+
+test('_takeDamage pushes player dmg event', () => {
+  const g = new Game()
+  g.room.enemies.length = 0; g.room.enemies.push(new Enemy(5, 3))
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  g.move(1, 0)
+  expect(g.events.some(ev => ev.type === 'dmg' && ev.who === 'player')).toBe(true)
+})
+
+test('_hitEnemy pushes enemy dmg event', () => {
+  const g = new Game()
+  const e = new Enemy(6, 5, 3)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(g.events.some(ev => ev.type === 'dmg' && ev.who === 'enemy')).toBe(true)
+})
+
+// ── Round 15: Extended invincibility ─────────────────────────────────────────
+
+test('invincibility lasts 12 frames after damage', () => {
+  const g = new Game()
+  g.room.enemies.length = 0; g.room.enemies.push(new Enemy(5, 3))
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  g.move(1, 0)
+  expect(g.invincible).toBe(12)
+})
+
+// ── Round 16: Room clear heal ─────────────────────────────────────────────────
+
+test('clearing room heals 2 HP', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5; g.hp = 5
+  g.move(1, 0)
+  expect(g.hp).toBe(7)
+})
+
+test('room clear heal does not overheal', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const e = new Enemy(6, g.py, 1)
+  g.room.enemies.push(e)
+  g.room.tiles[g.py][6] = T.GRASS
+  g.px = 5; g.hp = g.maxHp
+  g.move(1, 0)
+  expect(g.hp).toBe(g.maxHp)
+})
+
+// ── Round 17: Tall grass ──────────────────────────────────────────────────────
+
+test('GRASS_TALL is passable', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS_TALL
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.px).toBe(6)
+})
+
+test('attackDir on GRASS_TALL converts it to GRASS', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS_TALL
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(g.room.tiles[5][6]).toBe(T.GRASS)
+})
+
+// ── Round 18: Heart container ─────────────────────────────────────────────────
+
+test('HEART_CONTAINER increases maxHp by 4', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.HEART_CONTAINER
+  g.px = 5; g.py = 5
+  const prevMax = g.maxHp
+  g.move(1, 0)
+  expect(g.maxHp).toBe(prevMax + 4)
+})
+
+test('HEART_CONTAINER heals and becomes GRASS', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.hp = 5
+  g.room.tiles[5][6] = T.HEART_CONTAINER
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.hp).toBeGreaterThan(5)
+  expect(g.room.tiles[5][6]).toBe(T.GRASS)
+})
+
+// ── Round 19: Key + locked door ───────────────────────────────────────────────
+
+test('KEY tile is passable', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.KEY
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.px).toBe(6)
+})
+
+test('stepping on KEY sets hasKey and converts to GRASS', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.KEY
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.hasKey).toBe(true)
+  expect(g.room.tiles[5][6]).toBe(T.GRASS)
+})
+
+test('door without key does not advance floor', () => {
+  const g = new Game()
+  g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
+  g.room.enemies.length = 0; g.hasKey = false
+  g.move(0, 1)
+  expect(g.floor).toBe(1)
+})
+
+test('door with key advances floor and resets hasKey', () => {
+  const g = new Game()
+  g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
+  g.room.enemies.length = 0; g.hasKey = true
+  g.move(0, 1)
+  expect(g.floor).toBe(2)
+  expect(g.hasKey).toBe(false)
+})
+
+test('each generated floor has a key', () => {
+  const g = new Game()
+  const r = g.generateFloor(1)
+  let found = false
+  for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++)
+    if (r.tiles[y][x] === T.KEY) found = true
+  expect(found).toBe(true)
+})
+
+// ── Round 20: Weapon pickups ──────────────────────────────────────────────────
+
+test('WEAPON_SPEAR tile is passable', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.WEAPON_SPEAR
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.px).toBe(6)
+})
+
+test('stepping on WEAPON_SPEAR sets pendingWeapon', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.WEAPON_SPEAR
+  g.px = 5; g.py = 5; g.weapon = 'sword'
+  g.move(1, 0)
+  expect(g.pendingWeapon).toBe('spear')
+})
+
+test('move blocked while pendingWeapon set', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.pendingWeapon = 'spear'
+  g.move(1, 0)
+  expect(g.px).toBe(5)
+})
+
+test('equipWeapon sets weapon and clears pendingWeapon', () => {
+  const g = new Game()
+  g.pendingWeapon = 'spear'; g.weapon = 'sword'
+  g.equipWeapon()
+  expect(g.weapon).toBe('spear')
+  expect(g.pendingWeapon).toBeNull()
+})
+
+test('skipWeapon clears pendingWeapon without changing weapon', () => {
+  const g = new Game()
+  g.pendingWeapon = 'spear'; g.weapon = 'sword'
+  g.skipWeapon()
+  expect(g.weapon).toBe('sword')
+  expect(g.pendingWeapon).toBeNull()
+})
+
+test('weapon does not auto-upgrade on floor transition', () => {
+  const g = new Game()
+  g.floor = 2; g.weapon = 'sword'
+  g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
+  g.room.enemies.length = 0; g.hasKey = true
+  g.move(0, 1)
+  expect(g.weapon).toBe('sword')
 })
