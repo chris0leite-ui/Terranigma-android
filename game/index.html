@@ -300,6 +300,9 @@ function render() {
     spinAnim--
   }
 
+  // weapon effects
+  drawWeaponFx(ox, oy)
+
   // mini-map — top-right corner of game area
   const mm = 3
   const mmX = ox + r.w * ts - r.w * mm - 2
@@ -411,6 +414,52 @@ function render() {
   }
   ctx.textAlign = 'left'
   ctx.restore()
+}
+
+function drawWeaponFx(ox, oy) {
+  for (let i = weaponFx.length - 1; i >= 0; i--) {
+    const fx = weaponFx[i]
+    const a  = fx.life / fx.max
+    const cx = ox + (fx.x + 0.5) * ts
+    const cy = oy + (fx.y + 0.5) * ts
+    ctx.save(); ctx.globalAlpha = a
+    if (fx.type === 'slash') {
+      const ang = Math.atan2(fx.dy, fx.dx)
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = ts * 0.1; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.arc(cx, cy, ts * 0.45, ang - Math.PI * 0.55, ang + Math.PI * 0.55); ctx.stroke()
+      ctx.strokeStyle = '#ffffaa'; ctx.lineWidth = ts * 0.04
+      ctx.beginPath(); ctx.arc(cx, cy, ts * 0.42, ang - Math.PI * 0.4, ang + Math.PI * 0.4); ctx.stroke()
+    } else if (fx.type === 'thrust') {
+      const x0 = ox + (fx.x + 0.5) * ts;           const y0 = oy + (fx.y + 0.5) * ts
+      const x1 = ox + (fx.x + fx.dx*2.5+0.5) * ts; const y1 = oy + (fx.y + fx.dy*2.5+0.5) * ts
+      ctx.strokeStyle = '#aef'; ctx.lineWidth = ts * 0.14; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = ts * 0.05
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+    } else if (fx.type === 'sweep') {
+      const ang = Math.atan2(fx.dy, fx.dx)
+      const arcX = cx - fx.dx * ts * 0.5; const arcY = cy - fx.dy * ts * 0.5
+      ctx.strokeStyle = '#fa0'; ctx.lineWidth = ts * 0.14; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.arc(arcX, arcY, ts * 0.78, ang - Math.PI*0.6, ang + Math.PI*0.6); ctx.stroke()
+      ctx.strokeStyle = '#ffe082'; ctx.lineWidth = ts * 0.05
+      ctx.beginPath(); ctx.arc(arcX, arcY, ts * 0.75, ang - Math.PI*0.5, ang + Math.PI*0.5); ctx.stroke()
+    } else if (fx.type === 'spark') {
+      const spread = (1 - a) * ts * 0.4
+      ctx.fillStyle = '#ffd740'
+      ctx.beginPath(); ctx.arc(cx + fx.dx*spread, cy + fx.dy*spread, ts*0.12*a, 0, Math.PI*2); ctx.fill()
+    } else if (fx.type === 'projectile') {
+      const t   = 1 - fx.life / fx.max
+      const px2 = ox + (fx.x + fx.dx*t*8 + 0.5) * ts
+      const py2 = oy + (fx.y + fx.dy*t*8 + 0.5) * ts
+      ctx.fillStyle = '#4caf50'
+      ctx.beginPath(); ctx.arc(px2, py2, ts*0.18, 0, Math.PI*2); ctx.fill()
+      ctx.strokeStyle = '#81c784'; ctx.lineWidth = ts * 0.07
+      ctx.beginPath(); ctx.moveTo(ox+(fx.x+0.5)*ts, oy+(fx.y+0.5)*ts); ctx.lineTo(px2, py2); ctx.stroke()
+    }
+    ctx.restore()
+    fx.life--
+    if (fx.life <= 0) weaponFx.splice(i, 1)
+  }
 }
 
 function roundRect(x, y, w, h, r) {
