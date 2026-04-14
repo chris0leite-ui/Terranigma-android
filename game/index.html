@@ -21,20 +21,32 @@ const ctx    = canvas.getContext('2d')
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-const HUD_H = 72
-let ts = 64, btnSize = 80, dpadCx = 0, dpadCy = 0
+const HUD_H = 60
+let ts = 64, btnSize = 80
+let dpadCx = 0, dpadCy = 0
+let aCx = 0, aCy = 0, bCx = 0, bCy = 0, selCx = 0, selCy = 0
 
 function resize() {
   canvas.width  = window.innerWidth
   canvas.height = window.innerHeight
   btnSize = Math.floor(Math.min(canvas.width, canvas.height) / 6)
-  const availH = canvas.height - HUD_H - btnSize * 3
+  const availH = canvas.height - HUD_H - btnSize * 3.2
   ts = Math.max(8, Math.min(
     Math.floor(canvas.width  / g.room.w),
     Math.floor(availH        / g.room.h)
   ))
-  dpadCx = canvas.width  / 2
+  // D-pad: bottom-left
+  dpadCx = btnSize * 1.8
   dpadCy = canvas.height - btnSize * 1.5
+  // A button: bottom-right (attack)
+  aCx = canvas.width - btnSize * 1.0
+  aCy = canvas.height - btnSize * 0.9
+  // B button: upper-left of A (spin)
+  bCx = canvas.width - btnSize * 2.1
+  bCy = canvas.height - btnSize * 1.55
+  // SELECT: centre-bottom (throw mode)
+  selCx = canvas.width / 2
+  selCy = canvas.height - btnSize * 0.3
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -49,6 +61,7 @@ let throwMode = false           // throw mode toggle
 let walkPhase = 0               // player walk bob oscillator
 let playerDir = { dx: 0, dy: 1 }// last direction moved
 let spinAnim = 0                // frames of spin ring animation
+let weaponFx = []               // active weapon visual effects
 let frame = 0                   // global frame counter for enemy animations
 let zoneNameAlpha = 0           // zone-name card fade
 let prevZone = -1
@@ -67,6 +80,27 @@ function beep(freq, dur) {
     osc.connect(gain); gain.connect(ac.destination)
     osc.start(); osc.stop(ac.currentTime + dur / 1000)
   } catch (_) {}
+}
+
+// ── Weapon effect helpers ─────────────────────────────────────────────────────
+
+function addWeaponFx(weapon, px, py, dx, dy) {
+  const tx = px + dx, ty = py + dy
+  if (weapon === 'sword')
+    weaponFx.push({ type: 'slash',  x: tx, y: ty, dx, dy, life: 10, max: 10 })
+  else if (weapon === 'spear')
+    weaponFx.push({ type: 'thrust', x: px, y: py, dx, dy, life: 10, max: 10 })
+  else if (weapon === 'axe')
+    weaponFx.push({ type: 'sweep',  x: tx, y: ty, dx, dy, life: 10, max: 10 })
+}
+
+function addSpinFx(px, py) {
+  for (const [ddx, ddy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]])
+    weaponFx.push({ type: 'spark', x: px+ddx, y: py+ddy, dx: ddx, dy: ddy, life: 10, max: 10 })
+}
+
+function addThrowFx(px, py, dx, dy) {
+  weaponFx.push({ type: 'projectile', x: px, y: py, dx, dy, life: 14, max: 14 })
 }
 
 // ── Zone palettes ─────────────────────────────────────────────────────────────
