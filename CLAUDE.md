@@ -22,6 +22,9 @@
 
 ## Token efficiency
 
-- Be concise in responses
-- Don't re-read files already known from context
-- Don't explain what you're about to do and then do it — just do it
+- Responses: max 2 lines. No explanation, no narration. Confirm with filename:line only.
+- Never re-read files already in context this session
+- Don't explain what you're about to do — just do it
+- No preamble, no summary, no sign-off
+- Use subagents for any search/exploration task; report file:line only
+- `/compact` mid-session when context grows large
