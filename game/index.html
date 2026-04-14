@@ -325,31 +325,8 @@ function render() {
   if (barW > 0) { ctx.fillStyle = g.hp > 3 ? '#4caf50' : '#f44336'; ctx.fillRect(8, 8, barW, 26) }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
-  ctx.font = '14px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 58)
-
-  // THROW button in HUD (unlocks at level 3)
-  if (g.level >= 3) {
-    const tbx = W - 80; const tby = 6; const tbw = 72; const tbh = 44
-    ctx.fillStyle = throwMode ? '#e53935' : (g.throwReady ? '#1565c0' : '#424242')
-    roundRect(tbx, tby, tbw, tbh, 8); ctx.fill()
-    if (!g.throwReady && !throwMode) { ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(tbx, tby, tbw, tbh, 8); ctx.fill() }
-    ctx.fillStyle = '#fff'; ctx.font = `bold 13px monospace`; ctx.textAlign = 'center'
-    ctx.fillText(throwMode ? 'THROW!' : 'THROW', tbx + tbw / 2, tby + 17)
-    ctx.font = '11px monospace'
-    ctx.fillText(throwMode ? 'tap dir' : (g.throwReady ? 'ready' : 'wait'), tbx + tbw / 2, tby + 33)
-  }
-  // SPIN button (unlocks at floor 3 / spear)
-  if (g.weapon !== 'sword') {
-    const sbx = W - 160; const sby = 6; const sbw = 72; const sbh = 44
-    const spinReady = g.spinCooldown === 0
-    ctx.fillStyle = spinReady ? '#6a1b9a' : '#424242'
-    roundRect(sbx, sby, sbw, sbh, 8); ctx.fill()
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center'
-    ctx.fillText('SPIN', sbx + sbw / 2, sby + 17)
-    ctx.font = '11px monospace'
-    ctx.fillText(spinReady ? 'ready' : `${g.spinCooldown}`, sbx + sbw / 2, sby + 33)
-  }
+  ctx.font = '13px monospace'
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 52)
   // zone name card
   if (zoneNameAlpha > 0) {
     ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)
@@ -376,21 +353,55 @@ function render() {
     ctx.globalAlpha = 1
   }
 
-  // D-pad
-  ctx.font = `${Math.floor(btnSize * 0.5)}px sans-serif`
+  // ── Game Boy controls ───────────────────────────────────────────────────────
   ctx.textAlign = 'center'
   const half = btnSize * 0.45
-  const dirs = [[0,-1,'▲'],[-1,0,'◄'],[1,0,'►'],[0,1,'▼']]
-  for (const [ox2, oy2, lbl] of dirs) {
+
+  // D-pad (bottom-left)
+  ctx.font = `${Math.floor(btnSize * 0.5)}px sans-serif`
+  for (const [ox2, oy2, lbl] of [[0,-1,'▲'],[-1,0,'◄'],[1,0,'►'],[0,1,'▼']]) {
     const bx = dpadCx + ox2 * btnSize; const by = dpadCy + oy2 * btnSize
-    ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.7)' : 'rgba(50,50,60,0.7)'
-    roundRect(bx - half, by - half, half * 2, half * 2, 14)
-    ctx.fill()
-    ctx.strokeStyle = throwMode ? 'rgba(255,130,130,0.9)' : 'rgba(180,180,200,0.8)'; ctx.lineWidth = 2
-    roundRect(bx - half, by - half, half * 2, half * 2, 14)
-    ctx.stroke()
-    ctx.fillStyle = '#fff'
-    ctx.fillText(lbl, bx, by + btnSize * 0.18)
+    ctx.fillStyle = throwMode ? 'rgba(180,30,30,0.8)' : 'rgba(40,40,55,0.85)'
+    roundRect(bx - half, by - half, half * 2, half * 2, 14); ctx.fill()
+    ctx.strokeStyle = throwMode ? 'rgba(255,130,130,0.9)' : 'rgba(160,160,200,0.7)'; ctx.lineWidth = 2
+    roundRect(bx - half, by - half, half * 2, half * 2, 14); ctx.stroke()
+    ctx.fillStyle = '#ddd'; ctx.fillText(lbl, bx, by + btnSize * 0.18)
+  }
+
+  // B button — spin (upper-left of A)
+  const spinReady = g.spinCooldown === 0
+  const bAvail = g.weapon !== 'sword'
+  ctx.beginPath(); ctx.arc(bCx, bCy, btnSize * 0.38, 0, Math.PI * 2)
+  ctx.fillStyle = bAvail ? (spinReady ? 'rgba(106,27,154,0.9)' : 'rgba(50,20,70,0.9)') : 'rgba(35,35,35,0.7)'
+  ctx.fill()
+  ctx.strokeStyle = bAvail ? 'rgba(200,100,255,0.8)' : 'rgba(70,70,70,0.5)'; ctx.lineWidth = 2; ctx.stroke()
+  ctx.fillStyle = bAvail ? '#fff' : '#555'
+  ctx.font = `bold ${Math.floor(btnSize * 0.38)}px monospace`
+  ctx.fillText('B', bCx, bCy + btnSize * 0.14)
+  if (bAvail) {
+    ctx.font = `${Math.floor(btnSize * 0.22)}px monospace`
+    ctx.fillText(spinReady ? 'SPIN' : String(g.spinCooldown), bCx, bCy + btnSize * 0.42)
+  }
+
+  // A button — attack (bottom-right, large red)
+  ctx.beginPath(); ctx.arc(aCx, aCy, btnSize * 0.46, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(180,20,20,0.9)'; ctx.fill()
+  ctx.strokeStyle = 'rgba(255,150,150,0.9)'; ctx.lineWidth = 2.5; ctx.stroke()
+  ctx.fillStyle = '#fff'
+  ctx.font = `bold ${Math.floor(btnSize * 0.45)}px monospace`
+  ctx.fillText('A', aCx, aCy + btnSize * 0.17)
+  ctx.font = `${Math.floor(btnSize * 0.22)}px monospace`
+  ctx.fillText('ATK', aCx, aCy + btnSize * 0.44)
+
+  // SELECT button — throw mode (centre bottom, only at level 3+)
+  if (g.level >= 3) {
+    const sw = btnSize * 1.1, sh = btnSize * 0.32
+    ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.9)' : 'rgba(40,40,60,0.85)'
+    roundRect(selCx - sw/2, selCy - sh/2, sw, sh, sh/2); ctx.fill()
+    ctx.strokeStyle = throwMode ? '#ff8a80' : 'rgba(130,130,170,0.7)'; ctx.lineWidth = 1.5
+    roundRect(selCx - sw/2, selCy - sh/2, sw, sh, sh/2); ctx.stroke()
+    ctx.fillStyle = '#fff'; ctx.font = `${Math.floor(sh * 0.72)}px monospace`
+    ctx.fillText(throwMode ? 'THROW!' : 'SELECT', selCx, selCy + sh * 0.28)
   }
 
   // floor-transition fade
