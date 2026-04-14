@@ -12,7 +12,7 @@ canvas { position: fixed; top: 0; left: 0; display: block; }
 </head>
 <body>
 <canvas id="c"></canvas>
-<script src="game.js"></script>
+<script src="game.js?v=2"></script>
 <script>
 'use strict'
 
@@ -265,13 +265,13 @@ function render() {
   const oy = HUD_H
 
   // drain game events
-  for (const ev of g.events) {
+  for (const ev of (g.events || [])) {
     if (ev.type === 'dmg' || ev.type === 'heal') {
       dmgNumbers.push({ tx: ev.x + 0.5, ty: ev.y, val: ev.type === 'heal' ? `+${ev.val}` : `${ev.val}`, life: 40, max: 40, who: ev.type === 'heal' ? 'heal' : ev.who })
     }
     if (ev.type === 'locked') lockedFlash = 90
   }
-  g.events.length = 0
+  if (g.events) g.events.length = 0
 
   // tiles
   for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
