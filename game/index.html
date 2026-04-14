@@ -139,7 +139,7 @@ const STATUS_TINT = {
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 
 function drawPlayer(pcx, pcy, ts) {
-  if (g.invincible > 0 && g.invincible % 4 < 2) return
+  if (g.invincible > 0 && frame % 6 < 3) return
   const s = ts * 0.38
   const hurt = playerFlash > 0
   const bob = Math.sin(walkPhase) * s * 0.18
