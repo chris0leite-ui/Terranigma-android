@@ -115,6 +115,13 @@ class Game {
     this.spinCooldown = 5
   }
 
+  attackDir(dx, dy) {
+    if (!this.alive) return
+    const nx = this.px + dx; const ny = this.py + dy
+    if (nx < 0 || nx >= this.room.w || ny < 0 || ny >= this.room.h) return
+    this._doAttack(nx, ny, dx, dy)
+  }
+
   throw(dx, dy) {
     if (!this.alive || !this.throwReady || this.level < 3) return
     this.throwReady = false
