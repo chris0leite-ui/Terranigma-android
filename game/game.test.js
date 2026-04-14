@@ -916,3 +916,118 @@ test('weapon does not auto-upgrade on floor transition', () => {
   g.move(0, 1)
   expect(g.weapon).toBe('sword')
 })
+
+// ── New enemy types ───────────────────────────────────────────────────────────
+
+function makeGame() {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.px = 6; g.py = 5
+  g.room.tiles[5][6] = T.GRASS // ensure player tile passable for move(0,0)
+  return g
+}
+
+// Shielder
+test('shielder blocks frontal attack (0 damage)', () => {
+  const g = makeGame()
+  const e = new Enemy(7, 5, 4, 1, false, 'shielder')
+  e.shieldDir = { dx: -1, dy: 0 } // shield faces left (toward player)
+  g.room.enemies.push(e)
+  g.room.tiles[5][7] = T.GRASS
+  g.attackDir(1, 0) // attack from left — hits shield
+  expect(e.hp).toBe(4) // no damage
+})
+
+test('shielder takes damage from perpendicular attack', () => {
+  const g = makeGame()
+  const e = new Enemy(6, 4, 4, 1, false, 'shielder')
+  e.shieldDir = { dx: -1, dy: 0 } // shield faces left
+  g.room.enemies.push(e)
+  g.room.tiles[4][6] = T.GRASS
+  g.attackDir(0, -1) // attack from below (perpendicular to shield)
+  expect(e.hp).toBeLessThan(4)
+})
+
+test('shielder blocked event pushed on frontal hit', () => {
+  const g = makeGame()
+  const e = new Enemy(7, 5, 4, 1, false, 'shielder')
+  e.shieldDir = { dx: -1, dy: 0 }
+  g.room.enemies.push(e)
+  g.room.tiles[5][7] = T.GRASS
+  g.attackDir(1, 0)
+  expect(g.events.some(ev => ev.type === 'blocked')).toBe(true)
+})
+
+// Splitter
+test('killing big splitter spawns 2 mini splitters', () => {
+  const g = makeGame()
+  const e = new Enemy(7, 5, 1, 1, false, 'splitter')
+  e.size = 'big'
+  g.room.enemies.push(e)
+  g.room.tiles[5][7] = T.GRASS
+  g.attackDir(1, 0)
+  const minis = g.room.enemies.filter(en => en.type === 'splitter' && en.size === 'mini')
+  expect(minis.length).toBe(2)
+})
+
+test('killing mini splitter does not spawn more', () => {
+  const g = makeGame()
+  const e = new Enemy(7, 5, 1, 1, false, 'splitter')
+  e.size = 'mini'
+  g.room.enemies.push(e)
+  g.room.tiles[5][7] = T.GRASS
+  g.attackDir(1, 0)
+  const minis = g.room.enemies.filter(en => en.type === 'splitter')
+  expect(minis.length).toBe(0)
+})
+
+// Charger
+test('charger charges toward player when aligned in same row within 5 tiles', () => {
+  const g = makeGame()
+  g.px = 2; g.py = 5
+  const e = new Enemy(6, 5, 3, 1, false, 'charger')
+  e.chargeCooldown = 0
+  g.room.enemies.push(e)
+  for (let x = 1; x < 12; x++) g.room.tiles[5][x] = T.GRASS
+  g.room.tiles[5][6] = T.GRASS
+  const before = e.x
+  g.move(0, 0) // trigger enemy turn via any move
+  expect(e.x).toBeLessThan(before) // moved toward player (left)
+})
+
+test('charger cooldown prevents immediate re-charge', () => {
+  const g = makeGame()
+  g.px = 2; g.py = 5
+  const e = new Enemy(6, 5, 3, 1, false, 'charger')
+  e.chargeCooldown = 3
+  g.room.enemies.push(e)
+  for (let x = 1; x < 12; x++) g.room.tiles[5][x] = T.GRASS
+  const before = e.x
+  g.move(0, 0)
+  expect(e.x).toBe(before) // did not charge
+})
+
+// Healer
+test('healer heals injured ally within 3 tiles', () => {
+  const g = makeGame()
+  const ally = new Enemy(6, 4, 2, 1, false, 'grunt')
+  ally.maxHp = 3
+  const healer = new Enemy(6, 6, 3, 0, false, 'healer')
+  healer.maxHp = 3
+  g.room.enemies.push(ally, healer)
+  g.room.tiles[4][6] = T.GRASS; g.room.tiles[6][6] = T.GRASS
+  g.move(0, 0) // trigger enemy turns
+  expect(ally.hp).toBe(3) // healed 1 HP
+})
+
+test('healer does not overheal past maxHp', () => {
+  const g = makeGame()
+  const ally = new Enemy(6, 4, 3, 1, false, 'grunt')
+  ally.maxHp = 3
+  const healer = new Enemy(6, 6, 3, 0, false, 'healer')
+  healer.maxHp = 3
+  g.room.enemies.push(ally, healer)
+  g.room.tiles[4][6] = T.GRASS; g.room.tiles[6][6] = T.GRASS
+  g.move(0, 0)
+  expect(ally.hp).toBe(3) // already at max, no change
+})
