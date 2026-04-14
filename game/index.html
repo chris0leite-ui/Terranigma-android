@@ -528,47 +528,58 @@ function onInput(ev) {
   if (!g.alive) {
     bestFloor = Math.max(bestFloor, g.floor)
     localStorage.setItem('best', bestFloor)
-    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false
+    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false; weaponFx = []
     walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
     renderX = g.px; renderY = g.py; prevFloor = 1
-    resize()
+    resize(); return
+  }
+
+  // A button — attack in facing direction
+  if (Math.hypot(cx - aCx, cy - aCy) < btnSize * 0.55) {
+    const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+    addWeaponFx(g.weapon, g.px, g.py, playerDir.dx, playerDir.dy)
+    g.attackDir(playerDir.dx, playerDir.dy)
+    if      (g.level > beforeLevel) beep(1320, 200)
+    else if (g.kills > beforeKills) beep(880, 80)
+    else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
     return
   }
 
-  // SPIN button tap
-  if (g.weapon !== 'sword' && cy < HUD_H && cx > canvas.width - 160 && cx < canvas.width - 80) {
-    if (g.spinCooldown === 0) { g.spin(); spinAnim = 12; beep(440, 100) }
+  // B button — spin
+  if (Math.hypot(cx - bCx, cy - bCy) < btnSize * 0.5 && g.weapon !== 'sword') {
+    if (g.spinCooldown === 0) { g.spin(); spinAnim = 12; addSpinFx(g.px, g.py); beep(440, 100) }
     return
   }
 
-  // THROW button tap (in HUD area, right side)
-  if (g.level >= 3 && cy < HUD_H && cx > canvas.width - 80) {
-    if (g.throwReady) throwMode = !throwMode
-    return
+  // SELECT button — throw mode toggle
+  if (g.level >= 3) {
+    const sw = btnSize * 1.1, sh = btnSize * 0.32
+    if (cx > selCx - sw/2 && cx < selCx + sw/2 && cy > selCy - sh/2 && cy < selCy + sh/2) {
+      if (g.throwReady) throwMode = !throwMode
+      return
+    }
   }
 
-  const dx = cx - dpadCx; const dy = cy - dpadCy
-  const dead = btnSize * 0.25
-  const dist = Math.sqrt(dx*dx + dy*dy)
-  if (dist < dead) return
+  // D-pad — move or throw
+  const ddx = cx - dpadCx; const ddy = cy - dpadCy
+  const dist = Math.hypot(ddx, ddy)
+  if (dist < btnSize * 0.25 || dist > btnSize * 2.2) return
   let mdx = 0; let mdy = 0
-  if (Math.abs(dy) >= Math.abs(dx)) mdy = dy < 0 ? -1 : 1
-  else                               mdx = dx < 0 ? -1 : 1
-
-  const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+  if (Math.abs(ddy) >= Math.abs(ddx)) mdy = ddy < 0 ? -1 : 1
+  else                                 mdx = ddx < 0 ? -1 : 1
 
   if (throwMode && g.throwReady) {
-    g.throw(mdx, mdy)
-    throwMode = false
-    if (g.kills > beforeKills) beep(660, 80)
+    addThrowFx(g.px, g.py, mdx, mdy)
+    g.throw(mdx, mdy); throwMode = false; beep(660, 80)
     return
   }
 
   if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
+  const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
   g.move(mdx, mdy)
-  if      (g.level  > beforeLevel) beep(1320, 200)
-  else if (g.kills  > beforeKills) beep(880,  80)
-  else if (g.hp     < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
+  if      (g.level > beforeLevel) beep(1320, 200)
+  else if (g.kills > beforeKills) beep(880, 80)
+  else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
