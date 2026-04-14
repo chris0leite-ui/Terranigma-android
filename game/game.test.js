@@ -688,3 +688,26 @@ test('combo 6+ adds +2 to damage', () => {
   g.move(1, 0)
   expect(e.hp).toBe(10 - g.attack - 2)
 })
+
+// ── Round 13: Dedicated attack (A button) ─────────────────────────────────────
+
+test('attackDir damages enemy in facing direction without moving player', () => {
+  const g = new Game()
+  const e = new Enemy(6, 5, 3)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(e.hp).toBe(2)
+  expect(g.px).toBe(5)
+})
+
+test('attackDir does not move player when no enemy present', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(g.px).toBe(5)
+  expect(g.py).toBe(5)
+})

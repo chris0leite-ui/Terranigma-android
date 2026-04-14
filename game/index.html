@@ -21,20 +21,32 @@ const ctx    = canvas.getContext('2d')
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-const HUD_H = 72
-let ts = 64, btnSize = 80, dpadCx = 0, dpadCy = 0
+const HUD_H = 60
+let ts = 64, btnSize = 80
+let dpadCx = 0, dpadCy = 0
+let aCx = 0, aCy = 0, bCx = 0, bCy = 0, selCx = 0, selCy = 0
 
 function resize() {
   canvas.width  = window.innerWidth
   canvas.height = window.innerHeight
   btnSize = Math.floor(Math.min(canvas.width, canvas.height) / 6)
-  const availH = canvas.height - HUD_H - btnSize * 3
+  const availH = canvas.height - HUD_H - btnSize * 3.2
   ts = Math.max(8, Math.min(
     Math.floor(canvas.width  / g.room.w),
     Math.floor(availH        / g.room.h)
   ))
-  dpadCx = canvas.width  / 2
+  // D-pad: bottom-left
+  dpadCx = btnSize * 1.8
   dpadCy = canvas.height - btnSize * 1.5
+  // A button: bottom-right (attack)
+  aCx = canvas.width - btnSize * 1.0
+  aCy = canvas.height - btnSize * 0.9
+  // B button: upper-left of A (spin)
+  bCx = canvas.width - btnSize * 2.1
+  bCy = canvas.height - btnSize * 1.55
+  // SELECT: centre-bottom (throw mode)
+  selCx = canvas.width / 2
+  selCy = canvas.height - btnSize * 0.3
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -49,6 +61,7 @@ let throwMode = false           // throw mode toggle
 let walkPhase = 0               // player walk bob oscillator
 let playerDir = { dx: 0, dy: 1 }// last direction moved
 let spinAnim = 0                // frames of spin ring animation
+let weaponFx = []               // active weapon visual effects
 let frame = 0                   // global frame counter for enemy animations
 let zoneNameAlpha = 0           // zone-name card fade
 let prevZone = -1
@@ -67,6 +80,27 @@ function beep(freq, dur) {
     osc.connect(gain); gain.connect(ac.destination)
     osc.start(); osc.stop(ac.currentTime + dur / 1000)
   } catch (_) {}
+}
+
+// ── Weapon effect helpers ─────────────────────────────────────────────────────
+
+function addWeaponFx(weapon, px, py, dx, dy) {
+  const tx = px + dx, ty = py + dy
+  if (weapon === 'sword')
+    weaponFx.push({ type: 'slash',  x: tx, y: ty, dx, dy, life: 10, max: 10 })
+  else if (weapon === 'spear')
+    weaponFx.push({ type: 'thrust', x: px, y: py, dx, dy, life: 10, max: 10 })
+  else if (weapon === 'axe')
+    weaponFx.push({ type: 'sweep',  x: tx, y: ty, dx, dy, life: 10, max: 10 })
+}
+
+function addSpinFx(px, py) {
+  for (const [ddx, ddy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]])
+    weaponFx.push({ type: 'spark', x: px+ddx, y: py+ddy, dx: ddx, dy: ddy, life: 10, max: 10 })
+}
+
+function addThrowFx(px, py, dx, dy) {
+  weaponFx.push({ type: 'projectile', x: px, y: py, dx, dy, life: 14, max: 14 })
 }
 
 // ── Zone palettes ─────────────────────────────────────────────────────────────
@@ -266,6 +300,9 @@ function render() {
     spinAnim--
   }
 
+  // weapon effects
+  drawWeaponFx(ox, oy)
+
   // mini-map — top-right corner of game area
   const mm = 3
   const mmX = ox + r.w * ts - r.w * mm - 2
@@ -288,31 +325,8 @@ function render() {
   if (barW > 0) { ctx.fillStyle = g.hp > 3 ? '#4caf50' : '#f44336'; ctx.fillRect(8, 8, barW, 26) }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'left'
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
-  ctx.font = '14px monospace'
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 58)
-
-  // THROW button in HUD (unlocks at level 3)
-  if (g.level >= 3) {
-    const tbx = W - 80; const tby = 6; const tbw = 72; const tbh = 44
-    ctx.fillStyle = throwMode ? '#e53935' : (g.throwReady ? '#1565c0' : '#424242')
-    roundRect(tbx, tby, tbw, tbh, 8); ctx.fill()
-    if (!g.throwReady && !throwMode) { ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(tbx, tby, tbw, tbh, 8); ctx.fill() }
-    ctx.fillStyle = '#fff'; ctx.font = `bold 13px monospace`; ctx.textAlign = 'center'
-    ctx.fillText(throwMode ? 'THROW!' : 'THROW', tbx + tbw / 2, tby + 17)
-    ctx.font = '11px monospace'
-    ctx.fillText(throwMode ? 'tap dir' : (g.throwReady ? 'ready' : 'wait'), tbx + tbw / 2, tby + 33)
-  }
-  // SPIN button (unlocks at floor 3 / spear)
-  if (g.weapon !== 'sword') {
-    const sbx = W - 160; const sby = 6; const sbw = 72; const sbh = 44
-    const spinReady = g.spinCooldown === 0
-    ctx.fillStyle = spinReady ? '#6a1b9a' : '#424242'
-    roundRect(sbx, sby, sbw, sbh, 8); ctx.fill()
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center'
-    ctx.fillText('SPIN', sbx + sbw / 2, sby + 17)
-    ctx.font = '11px monospace'
-    ctx.fillText(spinReady ? 'ready' : `${g.spinCooldown}`, sbx + sbw / 2, sby + 33)
-  }
+  ctx.font = '13px monospace'
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]  SOULS:${g.soulsFreed}`, 8, 52)
   // zone name card
   if (zoneNameAlpha > 0) {
     ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)
@@ -339,21 +353,55 @@ function render() {
     ctx.globalAlpha = 1
   }
 
-  // D-pad
-  ctx.font = `${Math.floor(btnSize * 0.5)}px sans-serif`
+  // ── Game Boy controls ───────────────────────────────────────────────────────
   ctx.textAlign = 'center'
   const half = btnSize * 0.45
-  const dirs = [[0,-1,'▲'],[-1,0,'◄'],[1,0,'►'],[0,1,'▼']]
-  for (const [ox2, oy2, lbl] of dirs) {
+
+  // D-pad (bottom-left)
+  ctx.font = `${Math.floor(btnSize * 0.5)}px sans-serif`
+  for (const [ox2, oy2, lbl] of [[0,-1,'▲'],[-1,0,'◄'],[1,0,'►'],[0,1,'▼']]) {
     const bx = dpadCx + ox2 * btnSize; const by = dpadCy + oy2 * btnSize
-    ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.7)' : 'rgba(50,50,60,0.7)'
-    roundRect(bx - half, by - half, half * 2, half * 2, 14)
-    ctx.fill()
-    ctx.strokeStyle = throwMode ? 'rgba(255,130,130,0.9)' : 'rgba(180,180,200,0.8)'; ctx.lineWidth = 2
-    roundRect(bx - half, by - half, half * 2, half * 2, 14)
-    ctx.stroke()
-    ctx.fillStyle = '#fff'
-    ctx.fillText(lbl, bx, by + btnSize * 0.18)
+    ctx.fillStyle = throwMode ? 'rgba(180,30,30,0.8)' : 'rgba(40,40,55,0.85)'
+    roundRect(bx - half, by - half, half * 2, half * 2, 14); ctx.fill()
+    ctx.strokeStyle = throwMode ? 'rgba(255,130,130,0.9)' : 'rgba(160,160,200,0.7)'; ctx.lineWidth = 2
+    roundRect(bx - half, by - half, half * 2, half * 2, 14); ctx.stroke()
+    ctx.fillStyle = '#ddd'; ctx.fillText(lbl, bx, by + btnSize * 0.18)
+  }
+
+  // B button — spin (upper-left of A)
+  const spinReady = g.spinCooldown === 0
+  const bAvail = g.weapon !== 'sword'
+  ctx.beginPath(); ctx.arc(bCx, bCy, btnSize * 0.38, 0, Math.PI * 2)
+  ctx.fillStyle = bAvail ? (spinReady ? 'rgba(106,27,154,0.9)' : 'rgba(50,20,70,0.9)') : 'rgba(35,35,35,0.7)'
+  ctx.fill()
+  ctx.strokeStyle = bAvail ? 'rgba(200,100,255,0.8)' : 'rgba(70,70,70,0.5)'; ctx.lineWidth = 2; ctx.stroke()
+  ctx.fillStyle = bAvail ? '#fff' : '#555'
+  ctx.font = `bold ${Math.floor(btnSize * 0.38)}px monospace`
+  ctx.fillText('B', bCx, bCy + btnSize * 0.14)
+  if (bAvail) {
+    ctx.font = `${Math.floor(btnSize * 0.22)}px monospace`
+    ctx.fillText(spinReady ? 'SPIN' : String(g.spinCooldown), bCx, bCy + btnSize * 0.42)
+  }
+
+  // A button — attack (bottom-right, large red)
+  ctx.beginPath(); ctx.arc(aCx, aCy, btnSize * 0.46, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(180,20,20,0.9)'; ctx.fill()
+  ctx.strokeStyle = 'rgba(255,150,150,0.9)'; ctx.lineWidth = 2.5; ctx.stroke()
+  ctx.fillStyle = '#fff'
+  ctx.font = `bold ${Math.floor(btnSize * 0.45)}px monospace`
+  ctx.fillText('A', aCx, aCy + btnSize * 0.17)
+  ctx.font = `${Math.floor(btnSize * 0.22)}px monospace`
+  ctx.fillText('ATK', aCx, aCy + btnSize * 0.44)
+
+  // SELECT button — throw mode (centre bottom, only at level 3+)
+  if (g.level >= 3) {
+    const sw = btnSize * 1.1, sh = btnSize * 0.32
+    ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.9)' : 'rgba(40,40,60,0.85)'
+    roundRect(selCx - sw/2, selCy - sh/2, sw, sh, sh/2); ctx.fill()
+    ctx.strokeStyle = throwMode ? '#ff8a80' : 'rgba(130,130,170,0.7)'; ctx.lineWidth = 1.5
+    roundRect(selCx - sw/2, selCy - sh/2, sw, sh, sh/2); ctx.stroke()
+    ctx.fillStyle = '#fff'; ctx.font = `${Math.floor(sh * 0.72)}px monospace`
+    ctx.fillText(throwMode ? 'THROW!' : 'SELECT', selCx, selCy + sh * 0.28)
   }
 
   // floor-transition fade
@@ -377,6 +425,52 @@ function render() {
   }
   ctx.textAlign = 'left'
   ctx.restore()
+}
+
+function drawWeaponFx(ox, oy) {
+  for (let i = weaponFx.length - 1; i >= 0; i--) {
+    const fx = weaponFx[i]
+    const a  = fx.life / fx.max
+    const cx = ox + (fx.x + 0.5) * ts
+    const cy = oy + (fx.y + 0.5) * ts
+    ctx.save(); ctx.globalAlpha = a
+    if (fx.type === 'slash') {
+      const ang = Math.atan2(fx.dy, fx.dx)
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = ts * 0.1; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.arc(cx, cy, ts * 0.45, ang - Math.PI * 0.55, ang + Math.PI * 0.55); ctx.stroke()
+      ctx.strokeStyle = '#ffffaa'; ctx.lineWidth = ts * 0.04
+      ctx.beginPath(); ctx.arc(cx, cy, ts * 0.42, ang - Math.PI * 0.4, ang + Math.PI * 0.4); ctx.stroke()
+    } else if (fx.type === 'thrust') {
+      const x0 = ox + (fx.x + 0.5) * ts;           const y0 = oy + (fx.y + 0.5) * ts
+      const x1 = ox + (fx.x + fx.dx*2.5+0.5) * ts; const y1 = oy + (fx.y + fx.dy*2.5+0.5) * ts
+      ctx.strokeStyle = '#aef'; ctx.lineWidth = ts * 0.14; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = ts * 0.05
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+    } else if (fx.type === 'sweep') {
+      const ang = Math.atan2(fx.dy, fx.dx)
+      const arcX = cx - fx.dx * ts * 0.5; const arcY = cy - fx.dy * ts * 0.5
+      ctx.strokeStyle = '#fa0'; ctx.lineWidth = ts * 0.14; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.arc(arcX, arcY, ts * 0.78, ang - Math.PI*0.6, ang + Math.PI*0.6); ctx.stroke()
+      ctx.strokeStyle = '#ffe082'; ctx.lineWidth = ts * 0.05
+      ctx.beginPath(); ctx.arc(arcX, arcY, ts * 0.75, ang - Math.PI*0.5, ang + Math.PI*0.5); ctx.stroke()
+    } else if (fx.type === 'spark') {
+      const spread = (1 - a) * ts * 0.4
+      ctx.fillStyle = '#ffd740'
+      ctx.beginPath(); ctx.arc(cx + fx.dx*spread, cy + fx.dy*spread, ts*0.12*a, 0, Math.PI*2); ctx.fill()
+    } else if (fx.type === 'projectile') {
+      const t   = 1 - fx.life / fx.max
+      const px2 = ox + (fx.x + fx.dx*t*8 + 0.5) * ts
+      const py2 = oy + (fx.y + fx.dy*t*8 + 0.5) * ts
+      ctx.fillStyle = '#4caf50'
+      ctx.beginPath(); ctx.arc(px2, py2, ts*0.18, 0, Math.PI*2); ctx.fill()
+      ctx.strokeStyle = '#81c784'; ctx.lineWidth = ts * 0.07
+      ctx.beginPath(); ctx.moveTo(ox+(fx.x+0.5)*ts, oy+(fx.y+0.5)*ts); ctx.lineTo(px2, py2); ctx.stroke()
+    }
+    ctx.restore()
+    fx.life--
+    if (fx.life <= 0) weaponFx.splice(i, 1)
+  }
 }
 
 function roundRect(x, y, w, h, r) {
@@ -434,47 +528,58 @@ function onInput(ev) {
   if (!g.alive) {
     bestFloor = Math.max(bestFloor, g.floor)
     localStorage.setItem('best', bestFloor)
-    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false
+    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false; weaponFx = []
     walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
     renderX = g.px; renderY = g.py; prevFloor = 1
-    resize()
+    resize(); return
+  }
+
+  // A button — attack in facing direction
+  if (Math.hypot(cx - aCx, cy - aCy) < btnSize * 0.55) {
+    const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+    addWeaponFx(g.weapon, g.px, g.py, playerDir.dx, playerDir.dy)
+    g.attackDir(playerDir.dx, playerDir.dy)
+    if      (g.level > beforeLevel) beep(1320, 200)
+    else if (g.kills > beforeKills) beep(880, 80)
+    else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
     return
   }
 
-  // SPIN button tap
-  if (g.weapon !== 'sword' && cy < HUD_H && cx > canvas.width - 160 && cx < canvas.width - 80) {
-    if (g.spinCooldown === 0) { g.spin(); spinAnim = 12; beep(440, 100) }
+  // B button — spin
+  if (Math.hypot(cx - bCx, cy - bCy) < btnSize * 0.5 && g.weapon !== 'sword') {
+    if (g.spinCooldown === 0) { g.spin(); spinAnim = 12; addSpinFx(g.px, g.py); beep(440, 100) }
     return
   }
 
-  // THROW button tap (in HUD area, right side)
-  if (g.level >= 3 && cy < HUD_H && cx > canvas.width - 80) {
-    if (g.throwReady) throwMode = !throwMode
-    return
+  // SELECT button — throw mode toggle
+  if (g.level >= 3) {
+    const sw = btnSize * 1.1, sh = btnSize * 0.32
+    if (cx > selCx - sw/2 && cx < selCx + sw/2 && cy > selCy - sh/2 && cy < selCy + sh/2) {
+      if (g.throwReady) throwMode = !throwMode
+      return
+    }
   }
 
-  const dx = cx - dpadCx; const dy = cy - dpadCy
-  const dead = btnSize * 0.25
-  const dist = Math.sqrt(dx*dx + dy*dy)
-  if (dist < dead) return
+  // D-pad — move or throw
+  const ddx = cx - dpadCx; const ddy = cy - dpadCy
+  const dist = Math.hypot(ddx, ddy)
+  if (dist < btnSize * 0.25 || dist > btnSize * 2.2) return
   let mdx = 0; let mdy = 0
-  if (Math.abs(dy) >= Math.abs(dx)) mdy = dy < 0 ? -1 : 1
-  else                               mdx = dx < 0 ? -1 : 1
-
-  const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+  if (Math.abs(ddy) >= Math.abs(ddx)) mdy = ddy < 0 ? -1 : 1
+  else                                 mdx = ddx < 0 ? -1 : 1
 
   if (throwMode && g.throwReady) {
-    g.throw(mdx, mdy)
-    throwMode = false
-    if (g.kills > beforeKills) beep(660, 80)
+    addThrowFx(g.px, g.py, mdx, mdy)
+    g.throw(mdx, mdy); throwMode = false; beep(660, 80)
     return
   }
 
   if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
+  const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
   g.move(mdx, mdy)
-  if      (g.level  > beforeLevel) beep(1320, 200)
-  else if (g.kills  > beforeKills) beep(880,  80)
-  else if (g.hp     < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
+  if      (g.level > beforeLevel) beep(1320, 200)
+  else if (g.kills > beforeKills) beep(880, 80)
+  else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
