@@ -277,7 +277,7 @@ class Game {
 
   _takeDamage(dmg) {
     this.hp = Math.max(this.hp - dmg, 0)
-    this.invincible = 6
+    this.invincible = 3
     this.combo = 0; this.comboFlash = 0; this.comboBoost = 0
     this.events.push({ type: 'dmg', x: this.px, y: this.py, val: -dmg, who: 'player' })
   }
@@ -317,6 +317,7 @@ class Game {
     if (e.type === 'blocker')  return this._moveBlocker(e)
     if (e.type === 'wanderer') return this._moveWanderer(e)
     if (e.type === 'archer')   return this._moveArcher(e)
+    if (e.type === 'charger')  return this._moveCharger(e)
     this._chasePlayer(e)
   }
 
@@ -373,6 +374,17 @@ class Game {
     }
   }
 
+  _moveCharger(e) {
+    for (let i = 0; i < 2; i++) {
+      const ex = e.x + Math.sign(this.px - e.x)
+      const ey = e.y + Math.sign(this.py - e.y)
+      if (ex === this.px && ey === this.py) { this._takeDamage(e.dmg); return }
+      const r = this.room
+      if (PASS_ENEMY[r.tiles[ey][ex]] && !r.enemies.some(o => o !== e && o.x === ex && o.y === ey))
+        { e.x = ex; e.y = ey } else break
+    }
+  }
+
   _onEnemyKilled(e, x, y) {
     this.kills++
     this.soulsFreed++
@@ -381,7 +393,7 @@ class Game {
     if (e.isBoss) this.room.tiles[y][x] = T.HEART_CONTAINER
     if (this.room.enemies.length === 0) {
       this.room.cleared = true
-      const healed = Math.min(2, this.maxHp - this.hp)
+      const healed = Math.min(1, this.maxHp - this.hp)
       if (healed > 0) {
         this.hp += healed
         this.events.push({ type: 'heal', x: this.px, y: this.py, val: healed })
@@ -458,18 +470,19 @@ class Game {
     // key — always placed, required to advance
     this._placeItem(r, T.KEY)
 
+    const baseHp = 2 + Math.floor(f / 3)
+    const baseDmg = 1 + Math.floor(f / 4)
     if (isBossFloor) {
-      this._spawnEnemy(r, new Enemy(0, 0, 10 + f, 2, true))
+      this._spawnEnemy(r, new Enemy(0, 0, 10 + f * 2, baseDmg + 1, true))
     } else {
-      const n = Math.min(f + 1, 6)
+      const n = Math.min(f + 2, 9)
       for (let i = 0; i < n; i++) {
         let e
-        if (f >= 5 && rng.nextInt(0, 4) === 0) e = new Enemy(0, 0, 6, 2)
-        else if (f >= 3) {
-          const t = rng.nextInt(0, 3)
-          const type = t === 0 ? 'archer' : t === 1 ? 'wanderer' : 'blocker'
-          e = new Enemy(0, 0, 3, 1, false, type)
-        } else e = new Enemy(0, 0, f <= 2 ? 2 : 3, 1)
+        if (f >= 3) {
+          const t = rng.nextInt(0, 4)
+          const type = t === 0 ? 'archer' : t === 1 ? 'wanderer' : t === 2 ? 'blocker' : 'charger'
+          e = new Enemy(0, 0, baseHp, baseDmg, false, type)
+        } else e = new Enemy(0, 0, baseHp, baseDmg)
         this._spawnEnemy(r, e)
       }
     }
