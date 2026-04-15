@@ -1288,3 +1288,32 @@ test('charger attacks player on approach', () => {
   g.move(1, 0) // player → (3,5); charger at (4,5) steps to (3,5) → attacks
   expect(g.hp).toBe(before - 2)
 })
+
+test('archer emits arrow event when firing at player in LoS within 3 tiles', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(5, 5, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 3; g.py = 5; g.invincible = 0
+  g.move(0, 0) // trigger enemy turns
+  const arrowEv = g.events.find(ev => ev.type === 'arrow')
+  expect(arrowEv).toBeDefined()
+  expect(arrowEv.x).toBe(5)
+  expect(arrowEv.y).toBe(5)
+  expect(arrowEv.tx).toBe(g.px)
+  expect(arrowEv.ty).toBe(g.py)
+})
+
+test('killing enemy emits death event at enemy position', () => {
+  const g = new Game()
+  const e = new Enemy(6, 5, 1)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  const deathEv = g.events.find(ev => ev.type === 'death')
+  expect(deathEv).toBeDefined()
+  expect(deathEv.x).toBe(6)
+  expect(deathEv.y).toBe(5)
+})

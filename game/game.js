@@ -364,7 +364,10 @@ class Game {
   _moveArcher(e) {
     const dist = Math.abs(this.px - e.x) + Math.abs(this.py - e.y)
     if (dist > 3) { this._chasePlayer(e); return }
-    if (dist <= 3 && this._hasLoS(e.x, e.y, this.px, this.py)) this._takeDamage(e.dmg)
+    if (dist <= 3 && this._hasLoS(e.x, e.y, this.px, this.py)) {
+      this.events.push({ type: 'arrow', x: e.x, y: e.y, tx: this.px, ty: this.py })
+      this._takeDamage(e.dmg)
+    }
     if (dist < 2) {
       const r = this.room
       const ex = e.x - Math.sign(this.px - e.x)
@@ -386,6 +389,7 @@ class Game {
   }
 
   _onEnemyKilled(e, x, y) {
+    this.events.push({ type: 'death', x, y, boss: e.isBoss })
     this.kills++
     this.soulsFreed++
     this.combo++; this.comboFlash = 60
