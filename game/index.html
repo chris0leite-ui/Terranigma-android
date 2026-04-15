@@ -51,7 +51,16 @@ function resize() {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let g = new Game()
+// ── Meta-progression ─────────────────────────────────────────────────────────
+const PERK_COSTS = { bonusHp: 3, fasterSpin: 5, throwFromStart: 8, startLevel2: 10 }
+const PERK_LABELS = { bonusHp: '+4 Max HP', fasterSpin: 'Fast Spin (cd3)', throwFromStart: 'Throw Lv1', startLevel2: 'Start Lv2' }
+let totalSouls = parseInt(localStorage.getItem('totalSouls') || '0')
+let purchasedPerks = JSON.parse(localStorage.getItem('perks') || '{}')
+
+function savePerks() { localStorage.setItem('perks', JSON.stringify(purchasedPerks)) }
+function saveSouls() { localStorage.setItem('totalSouls', totalSouls) }
+
+let g = new Game(Date.now(), purchasedPerks)
 let playerFlash = 0
 let bestFloor = parseInt(localStorage.getItem('best') || '0')
 let renderX = 0, renderY = 0    // lerped player tile coords
@@ -68,6 +77,7 @@ let prevZone = -1
 let shakeFrames = 0             // screen shake countdown
 let dmgNumbers = []             // floating damage/heal text {tx,ty,val,life,max,who}
 let lockedFlash = 0             // "Need a key!" timer
+let shopMode = false            // show upgrade shop on game-over
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +128,8 @@ function getZone(f) { return Math.min(Math.floor((f - 1) / 5), 3) }
 const TILE_COLOR = {
   DOOR: '#ff8f00', CHEST: '#ffd700',
   KEY: '#ffe082', HEART_CONTAINER: '#ef5350',
-  WEAPON_SPEAR: '#4dd0e1', WEAPON_AXE: '#ff8a65'
+  WEAPON_SPEAR: '#4dd0e1', WEAPON_AXE: '#ff8a65',
+  MYSTERY_CHEST: '#ab47bc', SWITCH: '#26c6da'
 }
 function tileColor(type) {
   if (TILE_COLOR[type]) return TILE_COLOR[type]
@@ -330,6 +341,28 @@ function render() {
       ctx.fillStyle = '#ff7043'
       ctx.beginPath(); ctx.arc(cx2+ts*0.16, cy2-ts*0.16, ts*0.19, Math.PI*0.45, Math.PI*1.85); ctx.lineTo(cx2+ts*0.1, cy2-ts*0.1); ctx.fill()
     }
+    // mystery chest — pulsing purple question mark
+    if (tile === T.MYSTERY_CHEST) {
+      const pulse = 0.75 + 0.25 * Math.sin(frame * 0.15)
+      ctx.fillStyle = `rgba(171,71,188,${pulse})`
+      ctx.beginPath(); ctx.arc(cx2, cy2, ts*0.28, 0, Math.PI*2); ctx.fill()
+      ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.floor(ts*0.38)}px monospace`; ctx.textAlign = 'center'
+      ctx.fillText('?', cx2, cy2 + ts*0.14)
+    }
+    // switch tile — cyan lightning bolt
+    if (tile === T.SWITCH) {
+      const lit = g.room.switchOn
+      ctx.fillStyle = lit ? '#00e5ff' : '#26c6da'
+      ctx.beginPath()
+      ctx.moveTo(cx2 + ts*0.1, cy2 - ts*0.32)
+      ctx.lineTo(cx2 - ts*0.08, cy2 - ts*0.02)
+      ctx.lineTo(cx2 + ts*0.06, cy2 - ts*0.02)
+      ctx.lineTo(cx2 - ts*0.1, cy2 + ts*0.32)
+      ctx.lineTo(cx2 + ts*0.08, cy2 + ts*0.02)
+      ctx.lineTo(cx2 - ts*0.06, cy2 + ts*0.02)
+      ctx.closePath(); ctx.fill()
+      if (lit) { ctx.shadowColor='#00e5ff'; ctx.shadowBlur=ts*0.4; ctx.fill(); ctx.shadowBlur=0 }
+    }
     // locked door tint
     if (tile === T.DOOR && !g.hasKey) {
       ctx.fillStyle = 'rgba(180,0,0,0.45)'
@@ -412,7 +445,13 @@ function render() {
   ctx.fillText(`HP ${g.hp}/${g.maxHp}`, 216, 28)
   ctx.font = '13px monospace'
   const keyHint = g.hasKey ? '  KEY✓' : (frame % 60 < 30 ? '  KEY?' : '  ----')
-  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${g.weapon.toUpperCase()}]${keyHint}  SOULS:${g.soulsFreed}`, 8, 52)
+  const weaponLabel = (g.weaponCursed ? '⚡' : '') + g.weapon.toUpperCase()
+  const cursedLabel = g.cursed > 0 ? `  CURSED(${g.cursed})` : ''
+  const goldLabel = g.gold > 0 ? `  GOLD:${g.gold}` : ''
+  const boostLabel = g.comboBoost > 0 ? `  2xDMG(${g.comboBoost})` : ''
+  ctx.fillStyle = g.cursed > 0 ? '#ff5252' : '#fff'
+  ctx.fillText(`Floor ${g.floor}  Lv ${g.level}  XP ${g.xp}/${g.xpToNext}  [${weaponLabel}]${keyHint}  S:${g.soulsFreed}${goldLabel}${cursedLabel}${boostLabel}`, 8, 52)
+  ctx.fillStyle = '#fff'
   // zone name card
   if (zoneNameAlpha > 0) {
     ctx.globalAlpha = Math.min(1, zoneNameAlpha / 30)
@@ -426,16 +465,23 @@ function render() {
   }
 
   // combo overlay
-  if (g.comboFlash > 0) {
-    g.comboFlash--
-    const alpha = Math.min(1, g.comboFlash / 15)
+  if (g.comboFlash > 0 || g.comboBoost > 0) {
+    if (g.comboFlash > 0) g.comboFlash--
+    const alpha = g.comboBoost > 0 ? 0.9 : Math.min(1, g.comboFlash / 15)
     const bonus = Math.floor(g.combo / 3)
     ctx.globalAlpha = alpha
-    ctx.fillStyle = bonus > 0 ? '#ffd740' : '#ff9800'
+    // comboBoost: golden pulsing border
+    if (g.comboBoost > 0) {
+      const pulse = 0.6 + 0.4 * Math.sin(frame * 0.3)
+      ctx.strokeStyle = `rgba(255,215,0,${pulse})`; ctx.lineWidth = ts * 0.12
+      ctx.strokeRect(ox + 2, oy + 2, r.w * ts - 4, r.h * ts - 4)
+    }
+    ctx.fillStyle = g.comboBoost > 0 ? '#ffd700' : (g.combo >= 5 ? '#ff6f00' : (bonus > 0 ? '#ffd740' : '#ff9800'))
     ctx.font = `bold ${Math.floor(ts * 0.6)}px monospace`; ctx.textAlign = 'center'
     ctx.fillText(`${g.combo}x`, ox + r.w * ts / 2, oy + r.h * ts / 2 - ts / 4)
     ctx.font = `${Math.floor(ts * 0.35)}px monospace`
-    ctx.fillText(bonus > 0 ? `COMBO  +${bonus} ATK` : 'COMBO', ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
+    const subLabel = g.comboBoost > 0 ? `2x DMG (${g.comboBoost})` : g.combo >= 5 ? 'STUN READY' : (bonus > 0 ? `COMBO  +${bonus} ATK` : 'COMBO')
+    ctx.fillText(subLabel, ox + r.w * ts / 2, oy + r.h * ts / 2 + ts / 4)
     ctx.globalAlpha = 1
   }
 
@@ -467,10 +513,16 @@ function render() {
     ctx.fillStyle = 'rgba(0,0,0,0.65)'
     ctx.fillRect(ox, oy, r.w*ts, r.h*ts)
     ctx.textAlign = 'center'
-    ctx.fillStyle = '#ffd700'; ctx.font = `bold ${Math.floor(ts*0.5)}px monospace`
-    ctx.fillText(`Found ${g.pendingWeapon.toUpperCase()}!`, ox+r.w*ts/2, oy+r.h*ts/2-ts*0.55)
+    ctx.fillStyle = g.pendingWeaponCursed ? '#ff5252' : '#ffd700'
+    ctx.font = `bold ${Math.floor(ts*0.5)}px monospace`
+    ctx.fillText(`Found ${g.pendingWeapon.toUpperCase()}!`, ox+r.w*ts/2, oy+r.h*ts/2-ts*0.75)
+    if (g.pendingWeaponCursed) {
+      ctx.fillStyle = '#ff8a80'; ctx.font = `bold ${Math.floor(ts*0.32)}px monospace`
+      const curse = g.pendingWeapon === 'spear' ? 'CURSED: recoil on attack' : 'CURSED: -1 HP per swing'
+      ctx.fillText(curse, ox+r.w*ts/2, oy+r.h*ts/2-ts*0.3)
+    }
     ctx.fillStyle = '#aaa'; ctx.font = `${Math.floor(ts*0.28)}px monospace`
-    ctx.fillText(`[${g.weapon.toUpperCase()}]  →  A=Equip  B=Keep`, ox+r.w*ts/2, oy+r.h*ts/2+ts*0.05)
+    ctx.fillText(`[${g.weapon.toUpperCase()}]  →  A=Equip  B=Keep`, ox+r.w*ts/2, oy+r.h*ts/2+ts*0.15)
   }
 
   // ── Game Boy controls ───────────────────────────────────────────────────────
@@ -513,8 +565,8 @@ function render() {
   ctx.font = `${Math.floor(btnSize * 0.22)}px monospace`
   ctx.fillText('ATK', aCx, aCy + btnSize * 0.44)
 
-  // SELECT button — throw mode (centre bottom, only at level 3+)
-  if (g.level >= 3) {
+  // SELECT button — throw mode (centre bottom, at level 3+ or with perk)
+  if (g.level >= 3 || purchasedPerks.throwFromStart) {
     const sw = btnSize * 1.1, sh = btnSize * 0.32
     ctx.fillStyle = throwMode ? 'rgba(229,57,53,0.9)' : 'rgba(40,40,60,0.85)'
     roundRect(selCx - sw/2, selCy - sh/2, sw, sh, sh/2); ctx.fill()
@@ -533,15 +585,49 @@ function render() {
 
   // game-over overlay
   if (!g.alive) {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, 0, W, H)
+    ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fillRect(0, 0, W, H)
     ctx.textAlign = 'center'
-    ctx.fillStyle = '#f44336'; ctx.font = 'bold 60px monospace'
-    ctx.fillText('GAME OVER', W / 2, H / 2 - 60)
-    ctx.fillStyle = '#fff'; ctx.font = '28px monospace'
-    ctx.fillText(`Floor ${g.floor} reached`, W / 2, H / 2)
-    ctx.fillText(`Best: Floor ${bestFloor}`, W / 2, H / 2 + 40)
-    ctx.font = '22px monospace'
-    ctx.fillText('Tap to restart', W / 2, H / 2 + 90)
+    if (!shopMode) {
+      ctx.fillStyle = '#f44336'; ctx.font = 'bold 52px monospace'
+      ctx.fillText('GAME OVER', W / 2, H / 2 - 70)
+      ctx.fillStyle = '#fff'; ctx.font = '26px monospace'
+      ctx.fillText(`Floor ${g.floor} reached`, W / 2, H / 2 - 20)
+      ctx.fillText(`Best: Floor ${bestFloor}`, W / 2, H / 2 + 20)
+      ctx.fillStyle = '#ffd700'; ctx.font = '22px monospace'
+      ctx.fillText(`Souls freed: ${g.soulsFreed}  (Total: ${totalSouls + g.soulsFreed})`, W/2, H/2+60)
+      ctx.fillStyle = '#aaa'; ctx.font = '20px monospace'
+      ctx.fillText('Tap for upgrade shop', W / 2, H / 2 + 110)
+    } else {
+      // shop screen
+      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 36px monospace'
+      ctx.fillText('SOUL UPGRADES', W / 2, H * 0.12)
+      ctx.fillStyle = '#fff'; ctx.font = '22px monospace'
+      ctx.fillText(`Souls available: ${totalSouls}`, W/2, H * 0.2)
+      const perkKeys = Object.keys(PERK_COSTS)
+      const cellW = Math.min(W * 0.44, 200); const cellH = 90
+      const grid = [[0,1],[2,3]]
+      for (let row = 0; row < 2; row++) for (let col = 0; col < 2; col++) {
+        const k = perkKeys[row * 2 + col]
+        const cost = PERK_COSTS[k]; const owned = !!purchasedPerks[k]
+        const canBuy = !owned && totalSouls >= cost
+        const bx = W/2 + (col - 1) * cellW + (col === 0 ? 0 : cellW * 0.05)
+        const by = H * 0.28 + row * (cellH + 16)
+        ctx.fillStyle = owned ? 'rgba(76,175,80,0.5)' : canBuy ? 'rgba(255,215,0,0.18)' : 'rgba(60,60,60,0.6)'
+        roundRect(bx - cellW * 0.95, by, cellW * 1.9, cellH, 10); ctx.fill()
+        ctx.strokeStyle = owned ? '#4caf50' : canBuy ? '#ffd700' : '#555'; ctx.lineWidth = 2
+        roundRect(bx - cellW * 0.95, by, cellW * 1.9, cellH, 10); ctx.stroke()
+        ctx.fillStyle = owned ? '#81c784' : '#fff'
+        ctx.font = `bold ${Math.floor(cellH * 0.28)}px monospace`
+        ctx.fillText(PERK_LABELS[k], bx, by + cellH * 0.42)
+        ctx.font = `${Math.floor(cellH * 0.22)}px monospace`
+        ctx.fillStyle = owned ? '#4caf50' : canBuy ? '#ffd700' : '#888'
+        ctx.fillText(owned ? 'OWNED' : `${cost} souls`, bx, by + cellH * 0.72)
+      }
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 24px monospace'
+      ctx.fillText('Tap upgrade to buy  |  Tap here to play', W/2, H * 0.82)
+      ctx.fillStyle = '#aaa'; ctx.font = '18px monospace'
+      ctx.fillText('(upgrades carry across all runs)', W/2, H * 0.89)
+    }
   }
   ctx.textAlign = 'left'
   ctx.restore()
@@ -647,13 +733,38 @@ function onInput(ev) {
   const cy = (touch.clientY - rect.top)  * scaleY
 
   if (!g.alive) {
-    bestFloor = Math.max(bestFloor, g.floor)
-    localStorage.setItem('best', bestFloor)
-    g = new Game(); playerFlash = 0; shakeFrames = 0; throwMode = false; weaponFx = []
-    walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
-    dmgNumbers = []; lockedFlash = 0
-    renderX = g.px; renderY = g.py; prevFloor = 1
-    resize(); return
+    if (!shopMode) {
+      // first tap: save souls, enter shop
+      bestFloor = Math.max(bestFloor, g.floor)
+      localStorage.setItem('best', bestFloor)
+      totalSouls += g.soulsFreed; saveSouls()
+      shopMode = true; return
+    }
+    // in shop: check if tap hits an upgrade cell
+    const perkKeys = Object.keys(PERK_COSTS)
+    const cellW = Math.min(W * 0.44, 200); const cellH = 90
+    let bought = false
+    for (let row = 0; row < 2; row++) for (let col = 0; col < 2; col++) {
+      const k = perkKeys[row * 2 + col]
+      const cost = PERK_COSTS[k]; const owned = !!purchasedPerks[k]
+      const bx = W/2 + (col - 1) * cellW + (col === 0 ? 0 : cellW * 0.05)
+      const by = H * 0.28 + row * (cellH + 16)
+      if (!owned && totalSouls >= cost && cx >= bx - cellW*0.95 && cx <= bx + cellW*0.95 && cy >= by && cy <= by + cellH) {
+        purchasedPerks[k] = true; totalSouls -= cost; saveSouls(); savePerks()
+        bought = true
+      }
+    }
+    if (!bought) {
+      // restart
+      shopMode = false
+      g = new Game(Date.now(), purchasedPerks)
+      playerFlash = 0; shakeFrames = 0; throwMode = false; weaponFx = []
+      walkPhase = 0; spinAnim = 0; zoneNameAlpha = 0; prevZone = -1
+      dmgNumbers = []; lockedFlash = 0
+      renderX = g.px; renderY = g.py; prevFloor = 1
+      resize()
+    }
+    return
   }
 
   // weapon choice popup — A=equip, anything else=keep
@@ -681,7 +792,7 @@ function onInput(ev) {
   }
 
   // SELECT button — throw mode toggle
-  if (g.level >= 3) {
+  if (g.level >= 3 || purchasedPerks.throwFromStart) {
     const sw = btnSize * 1.1, sh = btnSize * 0.32
     if (cx > selCx - sw/2 && cx < selCx + sw/2 && cy > selCy - sh/2 && cy < selCy + sh/2) {
       if (g.throwReady) throwMode = !throwMode
