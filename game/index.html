@@ -78,6 +78,8 @@ let shakeFrames = 0             // screen shake countdown
 let dmgNumbers = []             // floating damage/heal text {tx,ty,val,life,max,who}
 let lockedFlash = 0             // "Need a key!" timer
 let shopMode = false            // show upgrade shop on game-over
+let repeatTimeout = null        // hold-to-run: initial delay timer
+let repeatInterval = null       // hold-to-run: repeat move interval
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,16 @@ function addSpinFx(px, py) {
 
 function addThrowFx(px, py, dx, dy) {
   weaponFx.push({ type: 'projectile', x: px, y: py, dx, dy, life: 14, max: 14 })
+}
+
+function addArcherFx(x, y, tx, ty) {
+  weaponFx.push({ type: 'arrow', x, y, tx, ty, life: 12, max: 12 })
+}
+
+function addDeathFx(x, y, boss) {
+  const color = boss ? '#f44336' : '#e0e0e0'
+  for (const [ddx, ddy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]])
+    weaponFx.push({ type: 'deathspark', x, y, dx: ddx, dy: ddy, color, life: 18, max: 18 })
 }
 
 // ── Zone palettes ─────────────────────────────────────────────────────────────
@@ -281,6 +293,8 @@ function render() {
       dmgNumbers.push({ tx: ev.x + 0.5, ty: ev.y, val: ev.type === 'heal' ? `+${ev.val}` : `${ev.val}`, life: 40, max: 40, who: ev.type === 'heal' ? 'heal' : ev.who })
     }
     if (ev.type === 'locked') lockedFlash = 90
+    if (ev.type === 'arrow') addArcherFx(ev.x, ev.y, ev.tx, ev.ty)
+    if (ev.type === 'death') addDeathFx(ev.x, ev.y, ev.boss)
   }
   if (g.events) g.events.length = 0
 
@@ -672,6 +686,18 @@ function drawWeaponFx(ox, oy) {
       ctx.beginPath(); ctx.arc(px2, py2, ts*0.18, 0, Math.PI*2); ctx.fill()
       ctx.strokeStyle = '#81c784'; ctx.lineWidth = ts * 0.07
       ctx.beginPath(); ctx.moveTo(ox+(fx.x+0.5)*ts, oy+(fx.y+0.5)*ts); ctx.lineTo(px2, py2); ctx.stroke()
+    } else if (fx.type === 'arrow') {
+      const t   = 1 - fx.life / fx.max
+      const ax  = ox + (fx.x + (fx.tx - fx.x) * t + 0.5) * ts
+      const ay  = oy + (fx.y + (fx.ty - fx.y) * t + 0.5) * ts
+      ctx.fillStyle = '#ff8c00'
+      ctx.beginPath(); ctx.arc(ax, ay, ts * 0.13, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = ts * 0.06; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(ox+(fx.x+0.5)*ts, oy+(fx.y+0.5)*ts); ctx.lineTo(ax, ay); ctx.stroke()
+    } else if (fx.type === 'deathspark') {
+      const spread = (1 - a) * ts * 0.7
+      ctx.fillStyle = fx.color
+      ctx.beginPath(); ctx.arc(cx + fx.dx*spread, cy + fx.dy*spread, ts*0.14*a, 0, Math.PI*2); ctx.fill()
     }
     ctx.restore()
     fx.life--
@@ -720,8 +746,11 @@ function loop() {
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 
-canvas.addEventListener('touchstart', onInput, { passive: false })
-canvas.addEventListener('mousedown',  onInput)
+canvas.addEventListener('touchstart',  onInput,    { passive: false })
+canvas.addEventListener('mousedown',   onInput)
+canvas.addEventListener('touchend',    stopRepeat)
+canvas.addEventListener('touchcancel', stopRepeat)
+canvas.addEventListener('mouseup',     stopRepeat)
 
 function onInput(ev) {
   ev.preventDefault()
@@ -742,13 +771,13 @@ function onInput(ev) {
     }
     // in shop: check if tap hits an upgrade cell
     const perkKeys = Object.keys(PERK_COSTS)
-    const cellW = Math.min(W * 0.44, 200); const cellH = 90
+    const cellW = Math.min(canvas.width * 0.44, 200); const cellH = 90
     let bought = false
     for (let row = 0; row < 2; row++) for (let col = 0; col < 2; col++) {
       const k = perkKeys[row * 2 + col]
       const cost = PERK_COSTS[k]; const owned = !!purchasedPerks[k]
-      const bx = W/2 + (col - 1) * cellW + (col === 0 ? 0 : cellW * 0.05)
-      const by = H * 0.28 + row * (cellH + 16)
+      const bx = canvas.width/2 + (col - 1) * cellW + (col === 0 ? 0 : cellW * 0.05)
+      const by = canvas.height * 0.28 + row * (cellH + 16)
       if (!owned && totalSouls >= cost && cx >= bx - cellW*0.95 && cx <= bx + cellW*0.95 && cy >= by && cy <= by + cellH) {
         purchasedPerks[k] = true; totalSouls -= cost; saveSouls(); savePerks()
         bought = true
@@ -814,13 +843,26 @@ function onInput(ev) {
     return
   }
 
-  if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
-  const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
-  g.move(mdx, mdy)
-  if      (g.events.some(ev => ev.type === 'locked')) beep(110, 80)
-  else if (g.level > beforeLevel) beep(1320, 200)
-  else if (g.kills > beforeKills) beep(880, 80)
-  else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
+  function doMove() {
+    if (!g.alive) { stopRepeat(); return }
+    if (mdx !== 0 || mdy !== 0) playerDir = { dx: mdx, dy: mdy }
+    const beforeHp = g.hp; const beforeLevel = g.level; const beforeKills = g.kills
+    g.move(mdx, mdy)
+    if      (g.events.some(ev => ev.type === 'locked')) { beep(110, 80); stopRepeat() }
+    else if (g.level > beforeLevel) beep(1320, 200)
+    else if (g.kills > beforeKills) beep(880, 80)
+    else if (g.hp    < beforeHp)    { playerFlash = 10; shakeFrames = 8; beep(220, 120) }
+  }
+  stopRepeat()
+  doMove()
+  repeatTimeout = setTimeout(() => {
+    repeatInterval = setInterval(doMove, 120)
+  }, 200)
+}
+
+function stopRepeat() {
+  clearTimeout(repeatTimeout); clearInterval(repeatInterval)
+  repeatTimeout = null; repeatInterval = null
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
