@@ -739,18 +739,18 @@ test('_hitEnemy pushes enemy dmg event', () => {
 
 // ── Round 15: Extended invincibility ─────────────────────────────────────────
 
-test('invincibility lasts 6 frames after damage', () => {
+test('invincibility lasts 3 frames after damage', () => {
   const g = new Game()
   g.room.enemies.length = 0; g.room.enemies.push(new Enemy(5, 3))
   g.room.tiles[3][4] = T.GRASS
   g.px = 3; g.py = 3
   g.move(1, 0)
-  expect(g.invincible).toBe(6)
+  expect(g.invincible).toBe(3)
 })
 
 // ── Round 16: Room clear heal ─────────────────────────────────────────────────
 
-test('clearing room heals 2 HP', () => {
+test('clearing room heals 1 HP', () => {
   const g = new Game()
   g.room.enemies.length = 0
   const e = new Enemy(6, g.py, 1)
@@ -758,7 +758,7 @@ test('clearing room heals 2 HP', () => {
   g.room.tiles[g.py][6] = T.GRASS
   g.px = 5; g.hp = 5
   g.move(1, 0)
-  expect(g.hp).toBe(7)
+  expect(g.hp).toBe(6)
 })
 
 test('room clear heal does not overheal', () => {
@@ -1238,4 +1238,53 @@ test('cursed axe costs player 1 HP on attack', () => {
   const before = g.hp
   g.attackDir(1, 0)
   expect(g.hp).toBe(before - 1)
+})
+
+// ── Difficulty scaling ────────────────────────────────────────────────────────
+
+test('enemy grunt HP scales with floor', () => {
+  const g = new Game(42)
+  const r1 = g.generateFloor(1)
+  const r6 = g.generateFloor(6)
+  const grunt1 = r1.enemies.find(e => !e.isBoss)
+  const grunt6 = r6.enemies.find(e => !e.isBoss)
+  expect(grunt6.hp).toBeGreaterThan(grunt1.hp)
+})
+
+test('enemy damage scales with floor', () => {
+  const g = new Game(42)
+  const r1 = g.generateFloor(1)
+  const r8 = g.generateFloor(8)
+  const e1 = r1.enemies.find(e => !e.isBoss)
+  const e8 = r8.enemies.find(e => !e.isBoss)
+  expect(e8.dmg).toBeGreaterThan(e1.dmg)
+})
+
+test('floor 9 spawns more than 6 enemies', () => {
+  const g = new Game(42)
+  const r9 = g.generateFloor(9)
+  expect(r9.enemies.length).toBeGreaterThan(6)
+})
+
+test('charger moves 2 tiles toward player per turn', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const c = new Enemy(9, 5, 3, 1, false, 'charger')
+  g.room.enemies.push(c)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 1; g.py = 5
+  g.move(1, 0) // player → (2,5); charger moves 2 tiles: 9→8→7
+  expect(c.x).toBe(7)
+})
+
+test('charger attacks player on approach', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const c = new Enemy(4, 5, 3, 2, false, 'charger')
+  g.room.enemies.push(c)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 2; g.py = 5
+  const before = g.hp
+  g.move(1, 0) // player → (3,5); charger at (4,5) steps to (3,5) → attacks
+  expect(g.hp).toBe(before - 2)
 })
