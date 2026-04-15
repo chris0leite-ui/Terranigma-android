@@ -916,3 +916,326 @@ test('weapon does not auto-upgrade on floor transition', () => {
   g.move(0, 1)
   expect(g.weapon).toBe('sword')
 })
+
+// ── D1: Mystery chests + greed gold ──────────────────────────────────────────
+
+test('mystery chest with roll 0 heals player', () => {
+  const g = new Game(1)
+  g.room.enemies.length = 0
+  g.hp = 5; g.px = 5; g.py = 3
+  g.room.tiles[3][6] = T.MYSTERY_CHEST
+  // Force roll 0 by rigging _rng
+  g._rng.nextInt = () => 0
+  g.move(1, 0)
+  expect(g.hp).toBeGreaterThan(5)
+})
+
+test('mystery chest with roll 1 grants xp', () => {
+  const g = new Game(1)
+  g.room.enemies.length = 0
+  g.xpToNext = 20 // prevent level-up from resetting xp
+  g.px = 5; g.py = 3
+  g.room.tiles[3][6] = T.MYSTERY_CHEST
+  const before = g.xp
+  g._rng.nextInt = () => 1
+  g.move(1, 0)
+  expect(g.xp).toBeGreaterThan(before)
+})
+
+test('mystery chest with roll 2 curses player', () => {
+  const g = new Game(1)
+  g.room.enemies.length = 0
+  g.px = 5; g.py = 3
+  g.room.tiles[3][6] = T.MYSTERY_CHEST
+  g._rng.nextInt = () => 2
+  g.move(1, 0)
+  expect(g.cursed).toBeGreaterThan(0)
+})
+
+test('cursed player deals halved attack', () => {
+  const g = new Game()
+  g.cursed = 5; g.attack = 4
+  const e = new Enemy(6, 5, 20)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(e.hp).toBe(20 - 2) // floor(4/2)=2
+})
+
+test('cursed turns decrement each move', () => {
+  const g = new Game()
+  g.cursed = 3
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.cursed).toBe(2)
+})
+
+test('gold increases when leaving floor with enemies alive', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.enemies.push(new Enemy(3, 3), new Enemy(4, 4))
+  g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
+  g.hasKey = true
+  g.move(0, 1)
+  expect(g.gold).toBe(2)
+})
+
+test('gold stays zero when floor cleared before leaving', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.px = Math.floor(g.room.w / 2); g.py = g.room.h - 2
+  g.hasKey = true
+  g.move(0, 1)
+  expect(g.gold).toBe(0)
+})
+
+// ── D2: Combo momentum ────────────────────────────────────────────────────────
+
+test('combo >= 5 stuns hit enemy', () => {
+  const g = new Game()
+  g.combo = 5
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(e.status).toBe('stunned')
+})
+
+test('combo < 5 does not stun enemy', () => {
+  const g = new Game()
+  g.combo = 4
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(e.status).toBeNull()
+})
+
+test('killing at combo >= 10 sets comboBoost = 3', () => {
+  const g = new Game()
+  g.combo = 10
+  const e = new Enemy(6, 5, 1)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(g.comboBoost).toBe(3)
+})
+
+test('comboBoost doubles attack damage', () => {
+  const g = new Game()
+  g.comboBoost = 1; g.attack = 2; g.combo = 0
+  const e = new Enemy(6, 5, 20)
+  g.room.enemies.length = 0; g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(e.hp).toBe(20 - 4) // 2 * 2 = 4
+})
+
+test('comboBoost ticks down after move', () => {
+  const g = new Game()
+  g.comboBoost = 3
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.comboBoost).toBe(2)
+})
+
+test('taking damage resets comboBoost', () => {
+  const g = new Game()
+  g.comboBoost = 3
+  g.room.enemies.length = 0; g.room.enemies.push(new Enemy(5, 3))
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  g.move(1, 0)
+  expect(g.comboBoost).toBe(0)
+})
+
+// ── D3: Perks ─────────────────────────────────────────────────────────────────
+
+test('perks.bonusHp increases starting maxHp by 4', () => {
+  const g = new Game(1, { bonusHp: true })
+  expect(g.maxHp).toBe(19)
+})
+
+test('perks.startLevel2 starts at level 2 with attack 2', () => {
+  const g = new Game(1, { startLevel2: true })
+  expect(g.level).toBe(2)
+  expect(g.attack).toBe(2)
+})
+
+test('perks.fasterSpin sets spinCooldown to 3 after spin', () => {
+  const g = new Game(1, { fasterSpin: true })
+  g.room.enemies.length = 0; g.px = 5; g.py = 5
+  g.spin()
+  expect(g.spinCooldown).toBe(3)
+})
+
+test('perks.throwFromStart allows throw at level 1', () => {
+  const g = new Game(1, { throwFromStart: true })
+  g.level = 1; g.throwReady = true
+  g.room.enemies.length = 0
+  const e = new Enemy(8, 5, 3)
+  g.room.enemies.push(e)
+  for (let x = 1; x < 11; x++) g.room.tiles[5][x] = T.GRASS
+  g.px = 5; g.py = 5
+  g.throw(1, 0)
+  expect(e.hp).toBe(2)
+})
+
+// ── D4: SWITCH tile ───────────────────────────────────────────────────────────
+
+test('SWITCH tile is passable by player', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.SWITCH
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.px).toBe(6)
+})
+
+test('stepping on SWITCH converts switchWalls WALL to GRASS', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.SWITCH
+  g.room.tiles[3][3] = T.WALL
+  g.room.switchWalls = [{ x: 3, y: 3 }]
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.room.tiles[3][3]).toBe(T.GRASS)
+})
+
+test('stepping on SWITCH again toggles switchWalls back to WALL', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.SWITCH
+  g.room.tiles[3][3] = T.WALL
+  g.room.switchWalls = [{ x: 3, y: 3 }]
+  g.px = 5; g.py = 5
+  g.move(1, 0) // on → GRASS
+  g.px = 5; g.py = 5
+  g.room.tiles[5][5] = T.GRASS
+  g.room.tiles[5][6] = T.SWITCH
+  g.move(1, 0) // off → WALL
+  expect(g.room.tiles[3][3]).toBe(T.WALL)
+})
+
+test('enemies cannot pass SWITCH tiles (PASS_ENEMY false)', () => {
+  const { PASS_ENEMY } = require('./game')
+  expect(PASS_ENEMY[T.SWITCH]).toBe(false)
+})
+
+// ── D5: Enemy faction identity ────────────────────────────────────────────────
+
+test('archer blocked by WALL in LoS does not damage player', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const a = new Enemy(7, 3, 3, 1, false, 'archer')
+  g.room.enemies.push(a)
+  // Place a wall between archer (7,3) and player (3,3) on the same row
+  g.room.tiles[3][5] = T.WALL
+  g.room.tiles[3][4] = T.GRASS
+  g.px = 3; g.py = 3
+  const before = g.hp
+  g.move(1, 0) // player moves to (4,3); archer at (7,3), wall at (5,3) blocks
+  expect(g.hp).toBe(before)
+})
+
+test('wanderer spawns copy after 8 turns alive', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const w = new Enemy(8, 8, 3, 1, false, 'wanderer')
+  g.room.enemies.push(w)
+  w.turnsAlive = 7
+  // Keep player far and clear room for wanderer movement
+  g.px = 1; g.py = 1
+  for (let y = 1; y < 9; y++) for (let x = 1; x < 11; x++) g.room.tiles[y][x] = T.GRASS
+  g.move(1, 0) // triggers _moveEnemy → turnsAlive becomes 8 → spawns
+  expect(g.room.enemies.length).toBe(2)
+})
+
+test('wanderer does not spawn beyond 6 total enemies', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  for (let i = 0; i < 5; i++) g.room.enemies.push(new Enemy(i+2, 8, 1, 1, false, 'grunt'))
+  const w = new Enemy(8, 7, 3, 1, false, 'wanderer')
+  g.room.enemies.push(w)
+  w.turnsAlive = 7
+  g.px = 1; g.py = 1
+  for (let y = 1; y < 9; y++) for (let x = 1; x < 11; x++) g.room.tiles[y][x] = T.GRASS
+  g.move(1, 0)
+  expect(g.room.enemies.length).toBeLessThanOrEqual(6)
+})
+
+test('blocker pushes player back when adjacent', () => {
+  const g = new Game()
+  g.room.enemies.length = 0
+  const b = new Enemy(5, 3, 3, 1, false, 'blocker')
+  g.room.enemies.push(b)
+  g.room.tiles[3][4] = T.GRASS; g.room.tiles[3][3] = T.GRASS
+  g.px = 3; g.py = 3
+  g.move(1, 0) // player moves to (4,3), blocker at (5,3) pushes back to (3,3)
+  expect(g.px).toBe(3)
+})
+
+// ── D6: Cursed weapons ────────────────────────────────────────────────────────
+
+test('weapon pickup on designated floor is not cursed', () => {
+  const g = new Game()
+  g.floor = 3; g.weapon = 'sword'
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.WEAPON_SPEAR
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.pendingWeaponCursed).toBe(false)
+})
+
+test('weapon pickup on non-designated floor is cursed', () => {
+  const g = new Game()
+  g.floor = 1; g.weapon = 'sword'
+  g.room.enemies.length = 0
+  g.room.tiles[5][6] = T.WEAPON_SPEAR
+  g.px = 5; g.py = 5
+  g.move(1, 0)
+  expect(g.pendingWeaponCursed).toBe(true)
+})
+
+test('equipWeapon copies pendingWeaponCursed to weaponCursed', () => {
+  const g = new Game()
+  g.pendingWeapon = 'spear'; g.pendingWeaponCursed = true
+  g.equipWeapon()
+  expect(g.weaponCursed).toBe(true)
+  expect(g.pendingWeaponCursed).toBe(false)
+})
+
+test('cursed spear pushes player back after attack', () => {
+  const g = new Game()
+  g.weapon = 'spear'; g.weaponCursed = true
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS; g.room.tiles[5][7] = T.GRASS; g.room.tiles[5][4] = T.GRASS
+  g.px = 5; g.py = 5
+  g.attackDir(1, 0)
+  expect(g.px).toBe(4) // pushed back from 5 to 4
+})
+
+test('cursed axe costs player 1 HP on attack', () => {
+  const g = new Game()
+  g.weapon = 'axe'; g.weaponCursed = true
+  g.room.enemies.length = 0
+  const e = new Enemy(6, 5, 10)
+  g.room.enemies.push(e)
+  g.room.tiles[5][6] = T.GRASS
+  g.px = 5; g.py = 5
+  const before = g.hp
+  g.attackDir(1, 0)
+  expect(g.hp).toBe(before - 1)
+})
